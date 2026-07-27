@@ -1,4 +1,5 @@
 import { Star, Tv, Film, Calendar } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { tmdbImage, getTitle, getReleaseYear } from '../../lib/api'
 import type { TMDBMovie, TMDBSerie } from '../../lib/api'
 
@@ -8,14 +9,21 @@ interface Props {
 }
 
 export function CardMedia({ item, mediaType }: Props) {
+  const navigate = useNavigate()
   const title = getTitle(item)
   const year = getReleaseYear(item)
   const poster = tmdbImage(item.poster_path, 'w342')
   const rating = item.vote_average ? item.vote_average.toFixed(1) : null
   const isTV = mediaType === 'tv'
 
+  function handleClick() {
+    if (mediaType === 'movie') navigate(`/filmes/${item.id}`)
+    // séries: /series/:id (futuro)
+  }
+
   return (
     <article
+      onClick={handleClick}
       className="group flex flex-col overflow-hidden rounded-2xl border border-[#2a2a38] bg-[#1c1c24] transition-all duration-200 hover:-translate-y-1 hover:border-[#6366f1]/40 hover:shadow-xl hover:shadow-black/40 cursor-pointer"
       aria-label={title}
     >

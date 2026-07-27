@@ -5,6 +5,42 @@ export const api = axios.create({
   timeout: 10000,
 })
 
+// tipos base
+
+export interface TMDBGenre {
+  id: number
+  name: string
+}
+
+export interface TMDBCastMember {
+  id: number
+  name: string
+  character: string
+  profile_path: string | null
+  order: number
+}
+
+export interface TMDBCrewMember {
+  id: number
+  name: string
+  job: string
+  department: string
+  profile_path: string | null
+}
+
+export interface TMDBProvider {
+  logo_path: string
+  provider_id: number
+  provider_name: string
+  display_priority: number
+}
+
+export interface TMDBWatchProviders {
+  link: string
+  flatrate?: TMDBProvider[]  // streaming
+  rent?: TMDBProvider[]
+  buy?: TMDBProvider[]
+}
 
 export interface TMDBMovie {
   id: number
@@ -17,8 +53,18 @@ export interface TMDBMovie {
   vote_average: number
   vote_count: number
   popularity: number
+  runtime: number | null
+  genres: TMDBGenre[]
   genre_ids: number[]
   media_type?: 'movie'
+}
+
+export interface TMDBMovieDetails extends TMDBMovie {
+  providers_br: TMDBWatchProviders | null
+  credits: {
+    cast: TMDBCastMember[]
+    crew: TMDBCrewMember[]
+  }
 }
 
 export interface TMDBSerie {
@@ -32,6 +78,7 @@ export interface TMDBSerie {
   vote_average: number
   vote_count: number
   popularity: number
+  genres: TMDBGenre[]
   genre_ids: number[]
   media_type?: 'tv'
 }
@@ -82,6 +129,14 @@ export const tmdbImage = (
   return `https://image.tmdb.org/t/p/${size}${path}`
 }
 
+export const formatRuntime = (minutes: number | null) => {
+  if (!minutes) return null
+  const h = Math.floor(minutes / 60)
+  const m = minutes % 60
+  return h > 0 ? `${h}h ${m}min` : `${m}min`
+}
+
+
 export type FiltroTipo = 'all' | 'movie' | 'tv' | 'person'
 
 export const pesquisar = (q: string, tipo: FiltroTipo = 'all', pagina = 1) =>
@@ -93,3 +148,9 @@ export const getTrending = (tipo: Omit<FiltroTipo, 'person'> = 'all', janela: 'd
   api.get<TMDBPaginatedResponse<TMDBMediaItem>>('/pesquisa/trending', {
     params: { tipo, janela },
   })
+
+export const getDetalhesFilme = (id: number) =>
+  api.get<TMDBMovieDetails>(`/filmes/${id}`)
+
+export const getProvedoresFilme = (id: number) =>
+  api.get<TMDBWatchProviders | null>(`/filmes/${id}/providers`)

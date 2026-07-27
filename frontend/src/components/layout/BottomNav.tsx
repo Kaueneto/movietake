@@ -50,8 +50,8 @@ export function BottomNav() {
           </li>
         ))}
       </ul>
-      {/* safe area para iPhone */}
-      <div className="h-safe-area-inset-bottom bg-[#0f0f13]" />
+      {/* safe area para iPhone — com viewport-fit=cover isso preenche abaixo da barra home */}
+      <div style={{ height: 'env(safe-area-inset-bottom, 0px)' }} />
     </nav>
   )
 }

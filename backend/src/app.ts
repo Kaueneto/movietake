@@ -1,6 +1,7 @@
 import express from 'express'
 import cors from 'cors'
 import pesquisaRoutes from './routes/pesquisa.routes'
+import midiaRoutes from './routes/midia.routes'
 
 const app = express()
 
@@ -18,5 +19,6 @@ app.get('/health', (_req, res) => {
 
 // Rotas
 app.use('/api/pesquisa', pesquisaRoutes)
+app.use('/api', midiaRoutes)
 
 export default app

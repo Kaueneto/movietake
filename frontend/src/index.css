@@ -66,3 +66,13 @@
   ::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 99px; }
   ::-webkit-scrollbar-thumb:hover { background: var(--color-text-muted); }
 }
+
+@layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}
