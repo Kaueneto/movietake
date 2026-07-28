@@ -154,3 +154,57 @@ export const getDetalhesFilme = (id: number) =>
 
 export const getProvedoresFilme = (id: number) =>
   api.get<TMDBWatchProviders | null>(`/filmes/${id}/providers`)
+
+// series
+
+export interface TMDBSeasonSummary {
+  id: number
+  name: string
+  season_number: number
+  episode_count: number
+  poster_path: string | null
+  air_date: string | null
+  overview: string
+}
+
+export interface TMDBEpisode {
+  id: number
+  name: string
+  overview: string
+  episode_number: number
+  season_number: number
+  still_path: string | null
+  air_date: string | null
+  vote_average: number
+  runtime: number | null
+}
+
+export interface TMDBSeason {
+  id: number
+  name: string
+  season_number: number
+  episodes: TMDBEpisode[]
+  poster_path: string | null
+  air_date: string | null
+  overview: string
+}
+
+export interface TMDBSerieDetails extends TMDBSerie {
+  providers_br: TMDBWatchProviders | null
+  number_of_seasons: number
+  number_of_episodes: number
+  status: string
+  networks: Array<{ id: number; name: string; logo_path: string | null }>
+  seasons: TMDBSeasonSummary[]
+  created_by: Array<{ id: number; name: string; profile_path: string | null }>
+  credits: {
+    cast: TMDBCastMember[]
+    crew: TMDBCrewMember[]
+  }
+}
+
+export const getDetalhesSerie = (id: number) =>
+  api.get<TMDBSerieDetails>(`/series/${id}`)
+
+export const getTemporadaSerie = (serieId: number, numero: number) =>
+  api.get<TMDBSeason>(`/series/${serieId}/temporadas/${numero}`)

@@ -18,7 +18,7 @@ export function CardMedia({ item, mediaType }: Props) {
 
   function handleClick() {
     if (mediaType === 'movie') navigate(`/filmes/${item.id}`)
-    // séries: /series/:id (futuro)
+    else navigate(`/series/${item.id}`)
   }
 
   return (

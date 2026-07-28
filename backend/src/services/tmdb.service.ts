@@ -96,6 +96,11 @@ export async function getSerieDetails(id: number) {
   return data
 }
 
+export async function getSerieSeason(serieId: number, seasonNumber: number) {
+  const { data } = await get(`/tv/${serieId}/season/${seasonNumber}`)
+  return data
+}
+
 export async function getMovieProviders(id: number) {
   const { data } = await get(`/movie/${id}/watch/providers`)
   return data
