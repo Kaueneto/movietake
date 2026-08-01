@@ -33,7 +33,7 @@ export function DetalhesSerie() {
       .catch(() => setError('Não foi possível carregar os detalhes.'))
       .finally(() => setLoading(false))
   }, [id])
-
+1
   useEffect(() => {
     window.scrollTo(0, 0)
     function onScroll() {
