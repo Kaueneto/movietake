@@ -8,11 +8,14 @@ import { useDebounce } from '../hooks/useDebounce'
 import {
   pesquisar,
   getTrending,
+  getPreferenciasBatch,
   isPerson,
   type AnyMediaItem,
   type TMDBMediaItem,
   type TMDBPerson,
+  type UserMediaPreferenceBatch,
 } from '../lib/api'
+import { getAuthHeader } from '../lib/supabase'
 
 export function Pesquisa() {
   const [query, setQuery] = useState('')
@@ -22,18 +25,37 @@ export function Pesquisa() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [totalResults, setTotalResults] = useState(0)
+  const [prefs, setPrefs] = useState<Record<string, UserMediaPreferenceBatch>>({})
 
   const debouncedQuery = useDebounce(query, 400)
   const inputRef = useRef<HTMLInputElement>(null)
 
+  async function carregarPrefs(items: Array<{ tmdb_id: number; media_type: string }>) {
+    try {
+      const authHeader = await getAuthHeader()
+      if (!authHeader) return
+      const { data } = await getPreferenciasBatch(items, authHeader)
+      if (!data || data.length === 0) return
+      setPrefs((prev) => {
+        const next = { ...prev }
+        for (const p of data) {
+          next[`${p.media_type}-${p.tmdb_id}`] = p
+        }
+        return next
+      })
+    } catch {
+      // silencioso — fallback para imagem padrão do TMDB
+    }
+  }
+
   useEffect(() => {
     getTrending('all', 'week')
-      .then(({ data }) => {
-        setTrending(
-          data.results
-            .filter((r) => r.media_type === 'movie' || r.media_type === 'tv')
-            .slice(0, 12),
-        )
+      .then(async ({ data }) => {
+        const items = data.results
+          .filter((r) => r.media_type === 'movie' || r.media_type === 'tv')
+          .slice(0, 12)
+        setTrending(items)
+        await carregarPrefs(items.map((i) => ({ tmdb_id: i.id, media_type: i.media_type })))
       })
       .catch(() => {})
   }, [])
@@ -56,6 +78,13 @@ export function Pesquisa() {
         if (cancelled) return
         setResults(data.results)
         setTotalResults(data.total_results)
+
+        const midias = data.results.filter(
+          (r) => !isPerson(r as AnyMediaItem) && (r.media_type === 'movie' || r.media_type === 'tv')
+        )
+        if (midias.length > 0) {
+          await carregarPrefs(midias.map((i) => ({ tmdb_id: i.id, media_type: i.media_type! })))
+        }
       } catch {
         if (!cancelled) setError('Não foi possível buscar. Verifique se o backend está rodando.')
       } finally {
@@ -67,25 +96,22 @@ export function Pesquisa() {
     return () => { cancelled = true }
   }, [debouncedQuery, filtro])
 
+  function customPosterFor(mediaType: string, tmdbId: number): string | null {
+    return prefs[`${mediaType}-${tmdbId}`]?.custom_poster_path ?? null
+  }
+
   const showTrending = !query.trim() && trending.length > 0
   const showEmpty = !loading && !error && query.trim() && results.length === 0
-
-  // separa pessoas de mídias para renderizar em layouts diferentes
   const mediaItems = results.filter((r): r is TMDBMediaItem => !isPerson(r))
   const peopleItems = results.filter((r): r is TMDBPerson => isPerson(r))
 
   return (
     <PageLayout noPadding>
-
       <div className="sticky top-0 z-40 space-y-3 bg-[#0f0f13]/95 px-4 pt-5 pb-3 backdrop-blur-xl">
         <h1 className="text-xl font-bold text-[#f1f1f3]">Pesquisar</h1>
 
         <div className="relative">
-          <Search
-            size={17}
-            className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[#5a5a72]"
-            aria-hidden="true"
-          />
+          <Search size={17} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[#5a5a72]" aria-hidden="true" />
           <input
             ref={inputRef}
             type="search"
@@ -110,7 +136,6 @@ export function Pesquisa() {
       </div>
 
       <div className="px-4 pt-3 pb-4">
-        {/* Loading */}
         {loading && (
           <div className="flex items-center justify-center gap-2 py-16 text-[#5a5a72]" role="status">
             <Loader2 size={22} className="animate-spin" aria-hidden="true" />
@@ -118,7 +143,6 @@ export function Pesquisa() {
           </div>
         )}
 
-        {/* Erro */}
         {error && !loading && (
           <div className="flex flex-col items-center gap-3 py-16 text-center">
             <AlertCircle size={32} className="text-red-400" aria-hidden="true" />
@@ -126,7 +150,6 @@ export function Pesquisa() {
           </div>
         )}
 
-        {/* Sem resultados */}
         {showEmpty && (
           <div className="flex flex-col items-center gap-2 py-16 text-center">
             <Search size={32} className="text-[#2a2a38]" aria-hidden="true" />
@@ -135,14 +158,12 @@ export function Pesquisa() {
           </div>
         )}
 
-        {/* Resultados */}
         {!loading && !error && results.length > 0 && (
           <section aria-label="Resultados da busca" className="space-y-5">
             <p className="text-xs text-[#5a5a72]">
               {totalResults.toLocaleString('pt-BR')} resultados encontrados
             </p>
 
-            {/* Filmes e séries — grid de posters */}
             {mediaItems.length > 0 && (
               <div>
                 {filtro === 'all' && peopleItems.length > 0 && (
@@ -156,13 +177,13 @@ export function Pesquisa() {
                       key={`${item.media_type}-${item.id}`}
                       item={item}
                       mediaType={item.media_type}
+                      customPosterPath={customPosterFor(item.media_type, item.id)}
                     />
                   ))}
                 </div>
               </div>
             )}
 
-            {/* Pessoas — lista horizontal */}
             {peopleItems.length > 0 && (
               <div>
                 {filtro === 'all' && mediaItems.length > 0 && (
@@ -180,7 +201,6 @@ export function Pesquisa() {
           </section>
         )}
 
-        {/* Trending */}
         {showTrending && !loading && (
           <section aria-label="Em alta esta semana">
             <div className="mb-3 flex items-center gap-2">
@@ -193,6 +213,7 @@ export function Pesquisa() {
                   key={`${item.media_type}-${item.id}`}
                   item={item}
                   mediaType={item.media_type}
+                  customPosterPath={customPosterFor(item.media_type, item.id)}
                 />
               ))}
             </div>

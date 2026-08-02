@@ -208,3 +208,56 @@ export const getDetalhesSerie = (id: number) =>
 
 export const getTemporadaSerie = (serieId: number, numero: number) =>
   api.get<TMDBSeason>(`/series/${serieId}/temporadas/${numero}`)
+
+// Imagens disponíveis no TMDB 
+
+export interface TMDBImage {
+  file_path: string
+  width: number
+  height: number
+  vote_average: number
+  iso_639_1: string | null
+}
+
+export interface TMDBImagesResponse {
+  posters: TMDBImage[]
+  backdrops: TMDBImage[]
+}
+
+export const getImagensMidia = (tipo: 'movie' | 'tv', id: number) =>
+  api.get<TMDBImagesResponse>(`/imagens/${tipo}/${id}`)
+
+// preferencias visuais salvas no Supabase via backend
+
+// Retorno do endpoint GET (preferência de uma obra)
+export interface UserMediaPreference {
+  custom_poster_path: string | null
+  custom_backdrop_path: string | null
+}
+
+// Retorno do endpoint batch — inclui identificadores para montar o mapa
+export interface UserMediaPreferenceBatch extends UserMediaPreference {
+  tmdb_id: number
+  media_type: string
+}
+
+export const getPreferenciaMidia = (tipo: 'movie' | 'tv', tmdbId: number, authHeader?: string) =>
+  api.get<UserMediaPreference>(`/preferencias/midia/${tipo}/${tmdbId}`, {
+    headers: authHeader ? { Authorization: authHeader } : {},
+  })
+
+export const getPreferenciasBatch = (
+  items: Array<{ tmdb_id: number; media_type: string }>,
+  authHeader?: string,
+) =>
+  api.post<UserMediaPreferenceBatch[]>('/preferencias/midia/batch', { items }, {
+    headers: authHeader ? { Authorization: authHeader } : {},
+  })
+
+export const salvarPreferenciaMidia = (
+  body: { tmdb_id: number; media_type: 'movie' | 'tv'; custom_poster_path: string | null; custom_backdrop_path: string | null },
+  authHeader?: string,
+) =>
+  api.post<UserMediaPreference>('/preferencias/midia', body, {
+    headers: authHeader ? { Authorization: authHeader } : {},
+  })

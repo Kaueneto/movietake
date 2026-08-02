@@ -3,7 +3,7 @@ import { env } from '../config/env'
 
 const tmdbClient = axios.create({
   baseURL: env.tmdb.baseUrl,
-  timeout: 15000, // 15s — mais tolerante que o padrão
+  timeout: 10000,
   headers: {
     Authorization: `Bearer ${env.tmdb.readToken}`,
     Accept: 'application/json',
@@ -84,14 +84,14 @@ export async function getTrending(mediaType: MediaType = 'all', timeWindow: Time
 
 export async function getMovieDetails(id: number) {
   const { data } = await get(`/movie/${id}`, {
-    params: { append_to_response: 'credits,videos,watch/providers' },
+    params: { append_to_response: 'credits,watch/providers' },
   })
   return data
 }
 
 export async function getSerieDetails(id: number) {
   const { data } = await get(`/tv/${id}`, {
-    params: { append_to_response: 'credits,videos,watch/providers' },
+    params: { append_to_response: 'credits,watch/providers' },
   })
   return data
 }
@@ -109,6 +109,15 @@ export async function getMovieProviders(id: number) {
 export async function searchPeople(query: string, page = 1) {
   const { data } = await get('/search/person', {
     params: { query, page, include_adult: false },
+  })
+  return data
+}
+
+//buscar todas as imgs dispo. de um filme ou serie  language: null para trazer imagens de todos os idiomas
+
+export async function getMediaImages(type: 'movie' | 'tv', id: number) {
+  const { data } = await get(`/${type}/${id}/images`, {
+    params: { language: null, include_image_language: 'pt,en,null' },
   })
   return data
 }

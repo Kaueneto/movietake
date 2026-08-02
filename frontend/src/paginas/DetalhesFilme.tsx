@@ -1,46 +1,44 @@
 import { useEffect, useRef, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft, Eye, Star, ListPlus, Bookmark,
   Clock, Calendar, MessageSquare, Loader2, AlertCircle,
-  Heart, ChevronRight,
+  Heart, ChevronRight, ZoomIn, ImagePlus, X,
 } from 'lucide-react'
 import {
   getDetalhesFilme,
+  getPreferenciaMidia,
   tmdbImage,
   formatRuntime,
   type TMDBMovieDetails,
   type TMDBCastMember,
 } from '../lib/api'
+import { useLongPress } from '../hooks/useLongPress'
+import { ModalSelecionarImagem } from '../components/midia/ModalSelecionarImagem'
+import { getAuthHeader } from '../lib/supabase'
 
 const HERO_HEIGHT = 420
 
-// sentimentos
 const SENTIMENTOS = [
   { emoji: '🥹', label: 'Emocionado' },
   { emoji: '😂', label: 'Engraçado' },
   { emoji: '😭', label: 'Triste' },
   { emoji: '🤯', label: 'Explodiu minha mente' },
-    { emoji: '😱', label: 'Em choque' },
-  { emoji: '😍', label: 'Apaixonado' },
+  { emoji: '', label: 'Apaixonado' },
   { emoji: '😱', label: 'Tenso' },
   { emoji: '😴', label: 'Entediante' },
-    { emoji: '😨', label: 'Medo' },
-  { emoji: '😡', label: 'Raiva' },
+  { emoji: '', label: 'Raiva' },
 ]
 
-// com quem assistiu
 const ASSISTIU_COM = [
-  { id: 'sozinho', label: 'Sozinho' },
-  { id: 'amigos', label: 'Amigos' },
-  { id: 'familia', label: 'Família' },
+  { id: 'sozinho',  label: 'Sozinho' },
+  { id: 'amigos',   label: 'Amigos' },
+  { id: 'familia',  label: 'Família' },
   { id: 'namorado', label: 'Namorado(a)' },
-  { id: 'conjuge', label: 'Cônjuge' },
-  { id: 'irmaos', label: 'Irmãos' },
-
+  { id: 'conjuge',  label: 'Cônjuge' },
+  { id: 'irmaos',   label: 'Irmãos' },
 ]
 
-// historico mockado pra trocar depois no backend
 const HISTORICO_MOCK = [
   { data: '12 jul. 2026', estrelas: 4 },
   { data: '03 jan. 2025', estrelas: 3 },
@@ -49,11 +47,15 @@ const HISTORICO_MOCK = [
 export function DetalhesFilme() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
 
   const [filme, setFilme] = useState<TMDBMovieDetails | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [abaAtiva, setAbaAtiva] = useState<'sobre' | 'detalhes'>('sobre')
+  const [customPoster, setCustomPoster] = useState<string | null>(null)
+  const [customBackdrop, setCustomBackdrop] = useState<string | null>(null)
+  const [modalImagem, setModalImagem] = useState<'poster' | 'backdrop' | null>(null)
 
   const heroRef = useRef<HTMLDivElement>(null)
   const backdropImgRef = useRef<HTMLDivElement>(null)
@@ -66,6 +68,28 @@ export function DetalhesFilme() {
       .then((res) => setFilme(res.data))
       .catch(() => setError('Não foi possível carregar os detalhes.'))
       .finally(() => setLoading(false))
+  }, [id])
+
+  // abre modal de poster automaticamente se vier de ?alterarPoster=1
+  useEffect(() => {
+    if (searchParams.get('alterarPoster') === '1') {
+      setModalImagem('poster')
+      navigate(window.location.pathname, { replace: true })
+    }
+  }, [searchParams]) // eslint-disable-line
+
+  // carrega preferência salva ao abrir a página
+  useEffect(() => {
+    if (!id) return
+    getAuthHeader().then((authHeader) => {
+      if (!authHeader) return
+      getPreferenciaMidia('movie', Number(id), authHeader)
+        .then((res) => {
+          if (res.data.custom_poster_path) setCustomPoster(res.data.custom_poster_path)
+          if (res.data.custom_backdrop_path) setCustomBackdrop(res.data.custom_backdrop_path)
+        })
+        .catch(() => {})
+    })
   }, [id])
 
   useEffect(() => {
@@ -83,11 +107,19 @@ export function DetalhesFilme() {
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
 
+ const backdropLongPress = useLongPress({
+    onLongPress: () => setModalImagem('backdrop'),
+    delay: 500,
+  })
+
+  const [menuPoster, setMenuPoster] = useState(false)
+  const [verPoster, setVerPoster] = useState(false)
+
   if (loading) return <LoadingState />
   if (error || !filme) return <ErrorState message={error} onBack={() => navigate(-1)} />
 
-  const backdrop = tmdbImage(filme.backdrop_path, 'w780')
-  const poster = tmdbImage(filme.poster_path, 'w342')
+  const backdrop = tmdbImage(customBackdrop ?? filme.backdrop_path, 'w780')
+  const poster = tmdbImage(customPoster ?? filme.poster_path, 'w342')
   const ano = filme.release_date ? new Date(filme.release_date).getFullYear() : null
   const duracao = formatRuntime(filme.runtime)
   const nota = filme.vote_average ? filme.vote_average.toFixed(1) : null
@@ -98,14 +130,47 @@ export function DetalhesFilme() {
   return (
     <div className="min-h-screen bg-[#0f0f13] overflow-x-hidden">
 
+      {modalImagem && (
+        <ModalSelecionarImagem
+          tmdbId={Number(id)}
+          mediaType="movie"
+          modo={modalImagem}
+          posterAtual={customPoster ?? filme.poster_path}
+          backdropAtual={customBackdrop ?? filme.backdrop_path}
+          onSalvar={(p, b) => {
+            setCustomPoster(p)
+            setCustomBackdrop(b)
+            setModalImagem(null)
+          }}
+          onFechar={() => setModalImagem(null)}
+        />
+      )}
+
+      {menuPoster && (
+        <MenuPoster
+          onVer={() => { setMenuPoster(false); setVerPoster(true) }}
+          onAlterar={() => { setMenuPoster(false); setModalImagem('poster') }}
+          onFechar={() => setMenuPoster(false)}
+        />
+      )}
+
+      {verPoster && (
+        <VisualizadorPoster
+          src={tmdbImage(customPoster ?? filme.poster_path, 'original') ?? poster ?? ''}
+          title={filme.title}
+          onFechar={() => setVerPoster(false)}
+        />
+      )}
+
       <div ref={heroRef} className="relative w-full overflow-hidden" style={{ height: HERO_HEIGHT }}>
         <div
           ref={backdropImgRef}
-          className="absolute inset-x-0 top-0 w-full"
+          className="absolute inset-x-0 top-0 w-full cursor-pointer select-none"
           style={{ height: HERO_HEIGHT + 160, willChange: 'transform' }}
+          {...backdropLongPress}
         >
           {backdrop
-            ? <img src={backdrop} alt="" aria-hidden="true" className="h-full w-full object-cover object-center" />
+            ? <img src={backdrop} alt="" aria-hidden="true" className="h-full w-full object-cover object-center" draggable={false} />
             : <div className="h-full w-full bg-[#16161c]" />
           }
         </div>
@@ -144,15 +209,17 @@ export function DetalhesFilme() {
             </div>
           </div>
           {poster && (
-            <div className="h-36 w-24 shrink-0 overflow-hidden rounded-xl shadow-2xl"
-              style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
-              <img src={poster} alt={`Poster de ${filme.title}`} className="h-full w-full object-cover" />
+            <div
+              className="h-36 w-24 shrink-0 overflow-hidden rounded-xl shadow-2xl cursor-pointer select-none"
+              style={{ border: '1px solid rgba(255,255,255,0.08)' }}
+              onClick={() => setMenuPoster(true)}
+            >
+              <img src={poster} alt={`Poster de ${filme.title}`} className="h-full w-full object-cover" draggable={false} />
             </div>
           )}
         </div>
       </div>
 
-      {/* Ações rápidas */}
       <div className="grid grid-cols-4 gap-2 px-4 pt-4">
         <ActionBtn icon={<Eye size={20} />} label="Já assisti" />
         <ActionBtn icon={<Star size={20} />} label="Avaliar" />
@@ -191,11 +258,7 @@ export function DetalhesFilme() {
 
 // aba "Sobre o Filme"
 
-function AbaFilme({
-  filme,
-  elenco,
-  streaming,
-}: {
+function AbaFilme({ filme, elenco, streaming }: {
   filme: TMDBMovieDetails
   elenco: TMDBCastMember[]
   streaming: any[]
@@ -229,7 +292,7 @@ function AbaFilme({
       <Section title="Onde assistir">
         {streaming.length > 0 ? (
           <div className="flex flex-wrap gap-3">
-            {streaming.map((p) => (
+            {streaming.map((p: any) => (
               <div key={p.provider_id} title={p.provider_name}
                 className="h-12 w-12 overflow-hidden rounded-xl border border-[#2a2a38]">
                 <img src={tmdbImage(p.logo_path, 'w185') ?? ''} alt={p.provider_name} className="h-full w-full object-cover" />
@@ -267,22 +330,13 @@ function AbaDetalhesUsuario({ elenco }: { elenco: TMDBCastMember[] }) {
 
   return (
     <div className="mt-6 space-y-6 px-4">
-
       <div className="flex items-center justify-between rounded-2xl border border-[#2a2a38] bg-[#1c1c24] px-4 py-4">
         <div>
           <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-[#5a5a72]">Sua avaliação</p>
           <div className="flex gap-1">
             {[1, 2, 3, 4, 5].map((n) => (
-              <button
-                key={n}
-                onClick={() => setAvaliacao(n === avaliacao ? 0 : n)}
-                aria-label={`${n} estrela${n > 1 ? 's' : ''}`}
-              >
-                <Star
-                  size={24}
-                  className={n <= avaliacao ? 'fill-[#6366f1] text-[#6366f1]' : 'text-[#2a2a38]'}
-                  aria-hidden="true"
-                />
+              <button key={n} onClick={() => setAvaliacao(n === avaliacao ? 0 : n)} aria-label={`${n} estrela${n > 1 ? 's' : ''}`}>
+                <Star size={24} className={n <= avaliacao ? 'fill-[#6366f1] text-[#6366f1]' : 'text-[#2a2a38]'} aria-hidden="true" />
               </button>
             ))}
           </div>
@@ -292,9 +346,7 @@ function AbaDetalhesUsuario({ elenco }: { elenco: TMDBCastMember[] }) {
           aria-label={favorito ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
           className={[
             'flex h-12 w-12 items-center justify-center rounded-xl border transition-colors',
-            favorito
-              ? 'border-red-500/40 bg-red-500/10 text-red-400'
-              : 'border-[#2a2a38] text-[#5a5a72] hover:border-red-500/30 hover:text-red-400',
+            favorito ? 'border-red-500/40 bg-red-500/10 text-red-400' : 'border-[#2a2a38] text-[#5a5a72] hover:border-red-500/30 hover:text-red-400',
           ].join(' ')}
         >
           <Heart size={22} className={favorito ? 'fill-red-400' : ''} aria-hidden="true" />
@@ -310,9 +362,7 @@ function AbaDetalhesUsuario({ elenco }: { elenco: TMDBCastMember[] }) {
               aria-pressed={sentimento === s.label}
               className={[
                 'flex flex-col items-center gap-1.5 rounded-xl border py-3 transition-colors',
-                sentimento === s.label
-                  ? 'border-[#6366f1]/50 bg-[#6366f1]/10'
-                  : 'border-[#2a2a38] bg-[#1c1c24] hover:border-[#2a2a38]/80',
+                sentimento === s.label ? 'border-[#6366f1]/50 bg-[#6366f1]/10' : 'border-[#2a2a38] bg-[#1c1c24]',
               ].join(' ')}
             >
               <span className="text-xl leading-none" aria-hidden="true">{s.emoji}</span>
@@ -348,9 +398,7 @@ function AbaDetalhesUsuario({ elenco }: { elenco: TMDBCastMember[] }) {
             {elenco.map((ator) => {
               const foto = tmdbImage(ator.profile_path, 'w185')
               const selecionado = personagemFav === ator.id
-              // quando há seleção, não-selecionados ficam em 30% de opacidade
               const opacidade = personagemFav === null || selecionado ? 1 : 0.3
-
               return (
                 <button
                   key={ator.id}
@@ -359,7 +407,6 @@ function AbaDetalhesUsuario({ elenco }: { elenco: TMDBCastMember[] }) {
                   className="flex w-[4.5rem] shrink-0 flex-col items-center gap-1.5 transition-opacity duration-200"
                   style={{ opacity: opacidade }}
                 >
-                  {/* foto — relative para o overlay de check funcionar */}
                   <div className={[
                     'relative aspect-square w-full overflow-hidden rounded-xl ring-2 transition-all duration-200',
                     selecionado ? 'ring-[#6366f1]' : 'ring-transparent',
@@ -369,7 +416,6 @@ function AbaDetalhesUsuario({ elenco }: { elenco: TMDBCastMember[] }) {
                       : <div className="flex h-full w-full items-center justify-center bg-[#1c1c24] text-xl font-bold text-[#5a5a72]">{ator.name[0]}</div>
                     }
                   </div>
-                  {/* personagem em cima, ator abaixo */}
                   <p className="text-center text-[10px] font-semibold leading-tight text-[#f1f1f3] line-clamp-2">{ator.character}</p>
                   <p className="text-center text-[9px] leading-tight text-[#5a5a72] line-clamp-1">{ator.name}</p>
                 </button>
@@ -379,7 +425,7 @@ function AbaDetalhesUsuario({ elenco }: { elenco: TMDBCastMember[] }) {
         </Section>
       )}
 
-     <Section title="Histórico">
+      <Section title="Histórico">
         {HISTORICO_MOCK.length > 0 ? (
           <div className="space-y-2">
             {HISTORICO_MOCK.map((h, i) => (
@@ -390,12 +436,7 @@ function AbaDetalhesUsuario({ elenco }: { elenco: TMDBCastMember[] }) {
                 </div>
                 <div className="flex gap-0.5">
                   {[1, 2, 3, 4, 5].map((n) => (
-                    <Star
-                      key={n}
-                      size={13}
-                      className={n <= h.estrelas ? 'fill-[#6366f1] text-[#6366f1]' : 'text-[#2a2a38]'}
-                      aria-hidden="true"
-                    />
+                    <Star key={n} size={13} className={n <= h.estrelas ? 'fill-[#6366f1] text-[#6366f1]' : 'text-[#2a2a38]'} aria-hidden="true" />
                   ))}
                 </div>
               </div>
@@ -405,7 +446,6 @@ function AbaDetalhesUsuario({ elenco }: { elenco: TMDBCastMember[] }) {
           <p className="text-sm text-[#5a5a72]">Você ainda não assistiu este filme.</p>
         )}
       </Section>
-
     </div>
   )
 }
@@ -462,6 +502,82 @@ function ErrorState({ message, onBack }: { message: string | null; onBack: () =>
       <button onClick={onBack} className="rounded-xl bg-[#6366f1] px-6 py-2.5 text-sm font-medium text-white">
         Voltar
       </button>
+    </div>
+  )
+}
+
+// bottom sheet: Ver poster / Alterar poster
+function MenuPoster({ onVer, onAlterar, onFechar }: {
+  onVer: () => void
+  onAlterar: () => void
+  onFechar: () => void
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end" role="dialog" aria-modal="true" aria-label="Opções do poster">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onFechar} aria-hidden="true" />
+      <div
+        className="relative w-full rounded-t-3xl border-t border-[#2a2a38] bg-[#16161c] px-4 pt-4"
+        style={{ paddingBottom: 'calc(2rem + env(safe-area-inset-bottom, 0px))' }}
+      >
+        <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-[#2a2a38]" aria-hidden="true" />
+        <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-[#5a5a72]">Poster</p>
+        <div className="flex flex-col gap-2">
+          <button
+            onClick={onVer}
+            className="flex items-center gap-3 rounded-xl bg-[#1c1c24] px-4 py-3.5 text-sm font-medium text-[#f1f1f3] transition-colors hover:bg-[#22222d]"
+          >
+            <ZoomIn size={18} className="text-[#9898ac]" aria-hidden="true" />
+            Ver poster
+          </button>
+          <button
+            onClick={onAlterar}
+            className="flex items-center gap-3 rounded-xl bg-[#1c1c24] px-4 py-3.5 text-sm font-medium text-[#6366f1] transition-colors hover:bg-[#22222d]"
+          >
+            <ImagePlus size={18} className="text-[#6366f1]" aria-hidden="true" />
+            Alterar poster ou Banner
+          </button>
+          <button
+            onClick={onFechar}
+            className="flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-[#5a5a72] transition-colors hover:text-[#9898ac]"
+          >
+            <X size={18} aria-hidden="true" />
+            Cancelar
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// visualizdor de poster em tela cheia
+function VisualizadorPoster({ src, title, onFechar }: {
+  src: string
+  title: string
+  onFechar: () => void
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/95"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Poster de ${title}`}
+      onClick={onFechar}
+    >
+      <button
+        className="absolute z-10 flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm"
+        style={{ top: 'calc(env(safe-area-inset-top, 0px) + 16px)', right: '1rem' }}
+        onClick={onFechar}
+        aria-label="Fechar"
+      >
+        <X size={18} aria-hidden="true" />
+      </button>
+      <img
+        src={src}
+        alt={`Poster de ${title}`}
+        className="max-h-[90vh] max-w-[90vw] rounded-2xl object-contain shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+        draggable={false}
+      />
     </div>
   )
 }

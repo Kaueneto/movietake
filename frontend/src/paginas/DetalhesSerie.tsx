@@ -1,13 +1,23 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Heart, ListPlus, Bookmark, Bell, Calendar, MessageSquare, Loader2, AlertCircle, ChevronDown, ChevronRight, Check,  Play,
+import {
+  ArrowLeft, Heart, ListPlus, Bookmark, Bell, Calendar,
+  MessageSquare, Loader2, AlertCircle, ChevronDown, ChevronRight, Check, Play,
+  ZoomIn, ImagePlus, X,
 } from 'lucide-react'
-import { getDetalhesSerie, getTemporadaSerie, tmdbImage,
-    type TMDBSerieDetails,
+import {
+  getDetalhesSerie,
+  getTemporadaSerie,
+  getPreferenciaMidia,
+  tmdbImage,
+  type TMDBSerieDetails,
   type TMDBCastMember,
   type TMDBSeason,
   type TMDBEpisode,
 } from '../lib/api'
+import { useLongPress } from '../hooks/useLongPress'
+import { ModalSelecionarImagem } from '../components/midia/ModalSelecionarImagem'
+import { getAuthHeader } from '../lib/supabase'
 
 const HERO_HEIGHT = 420
 
@@ -21,6 +31,10 @@ export function DetalhesSerie() {
   const [abaAtiva, setAbaAtiva] = useState<'sobre' | 'episodios'>('sobre')
   const [seguindo, setSeguindo] = useState(false)
 
+  const [customPoster, setCustomPoster] = useState<string | null>(null)
+  const [customBackdrop, setCustomBackdrop] = useState<string | null>(null)
+  const [modalImagem, setModalImagem] = useState<'poster' | 'backdrop' | null>(null)
+
   const heroRef = useRef<HTMLDivElement>(null)
   const backdropImgRef = useRef<HTMLDivElement>(null)
 
@@ -33,7 +47,21 @@ export function DetalhesSerie() {
       .catch(() => setError('Não foi possível carregar os detalhes.'))
       .finally(() => setLoading(false))
   }, [id])
-1
+
+  // carrega preferência salva ao abrir a página
+  useEffect(() => {
+    if (!id) return
+    getAuthHeader().then((authHeader) => {
+      if (!authHeader) return
+      getPreferenciaMidia('tv', Number(id), authHeader)
+        .then((res) => {
+          if (res.data.custom_poster_path) setCustomPoster(res.data.custom_poster_path)
+          if (res.data.custom_backdrop_path) setCustomBackdrop(res.data.custom_backdrop_path)
+        })
+        .catch(() => {})
+    })
+  }, [id])
+
   useEffect(() => {
     window.scrollTo(0, 0)
     function onScroll() {
@@ -49,11 +77,20 @@ export function DetalhesSerie() {
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
 
+  const [menuPoster, setMenuPoster] = useState(false)
+  const [verPoster, setVerPoster] = useState(false)
+
+  // todos os hooks antes de qualquer early return
+  const backdropLongPress = useLongPress({
+    onLongPress: () => setModalImagem('backdrop'),
+    delay: 500,
+  })
+
   if (loading) return <LoadingState />
   if (error || !serie) return <ErrorState message={error} onBack={() => navigate(-1)} />
 
-  const backdrop = tmdbImage(serie.backdrop_path, 'w780')
-  const poster = tmdbImage(serie.poster_path, 'w342')
+  const backdrop = tmdbImage(customBackdrop ?? serie.backdrop_path, 'w780')
+  const poster = tmdbImage(customPoster ?? serie.poster_path, 'w342')
   const ano = serie.first_air_date ? new Date(serie.first_air_date).getFullYear() : null
   const criador = serie.created_by?.[0]
   const elenco = serie.credits.cast.slice(0, 15)
@@ -63,14 +100,47 @@ export function DetalhesSerie() {
   return (
     <div className="min-h-screen bg-[#0f0f13] overflow-x-hidden">
 
+      {modalImagem && (
+        <ModalSelecionarImagem
+          tmdbId={Number(id)}
+          mediaType="tv"
+          modo={modalImagem}
+          posterAtual={customPoster ?? serie.poster_path}
+          backdropAtual={customBackdrop ?? serie.backdrop_path}
+          onSalvar={(poster, backdrop) => {
+            setCustomPoster(poster)
+            setCustomBackdrop(backdrop)
+            setModalImagem(null)
+          }}
+          onFechar={() => setModalImagem(null)}
+        />
+      )}
+
+      {menuPoster && (
+        <MenuPoster
+          onVer={() => { setMenuPoster(false); setVerPoster(true) }}
+          onAlterar={() => { setMenuPoster(false); setModalImagem('poster') }}
+          onFechar={() => setMenuPoster(false)}
+        />
+      )}
+
+      {verPoster && (
+        <VisualizadorPoster
+          src={tmdbImage(customPoster ?? serie.poster_path, 'original') ?? poster ?? ''}
+          title={serie.name}
+          onFechar={() => setVerPoster(false)}
+        />
+      )}
+
       <div ref={heroRef} className="relative w-full overflow-hidden" style={{ height: HERO_HEIGHT }}>
         <div
           ref={backdropImgRef}
-          className="absolute inset-x-0 top-0 w-full"
+          className="absolute inset-x-0 top-0 w-full cursor-pointer select-none"
           style={{ height: HERO_HEIGHT + 160, willChange: 'transform' }}
+          {...backdropLongPress}
         >
           {backdrop
-            ? <img src={backdrop} alt="" aria-hidden="true" className="h-full w-full object-cover object-center" />
+            ? <img src={backdrop} alt="" aria-hidden="true" className="h-full w-full object-cover object-center" draggable={false} />
             : <div className="h-full w-full bg-[#16161c]" />
           }
         </div>
@@ -103,10 +173,11 @@ export function DetalhesSerie() {
           </div>
           {poster && (
             <div
-              className="h-36 w-24 shrink-0 overflow-hidden rounded-xl shadow-2xl"
+              className="h-36 w-24 shrink-0 overflow-hidden rounded-xl shadow-2xl cursor-pointer select-none"
               style={{ border: '1px solid rgba(255,255,255,0.08)' }}
+              onClick={() => setMenuPoster(true)}
             >
-              <img src={poster} alt={`Poster de ${serie.name}`} className="h-full w-full object-cover" />
+              <img src={poster} alt={`Poster de ${serie.name}`} className="h-full w-full object-cover" draggable={false} />
             </div>
           )}
         </div>
@@ -134,13 +205,7 @@ export function DetalhesSerie() {
 
       <div className="bg-[#0f0f13] pb-28">
         {abaAtiva === 'sobre'
-          ? <AbaSobre
-              serie={serie}
-              elenco={elenco}
-              streaming={streaming}
-              seguindo={seguindo}
-              onSeguir={() => setSeguindo((v) => !v)}
-            />
+          ? <AbaSobre serie={serie} elenco={elenco} streaming={streaming} seguindo={seguindo} onSeguir={() => setSeguindo((v) => !v)} />
           : <AbaEpisodios serieId={Number(id)} temporadas={temporadas} />
         }
       </div>
@@ -150,9 +215,7 @@ export function DetalhesSerie() {
 
 // Aba Sobre
 
-function AbaSobre({
-  serie, elenco, streaming, seguindo, onSeguir,
-}: {
+function AbaSobre({ serie, elenco, streaming, seguindo, onSeguir }: {
   serie: TMDBSerieDetails
   elenco: TMDBCastMember[]
   streaming: any[]
@@ -237,18 +300,13 @@ function AbaSobre({
 
 // Aba eps
 
-function AbaEpisodios({
-  serieId,
-  temporadas,
-}: {
+function AbaEpisodios({ serieId, temporadas }: {
   serieId: number
   temporadas: Array<{ season_number: number; name: string; episode_count: number }>
 }) {
   const [aberta, setAberta] = useState<number | null>(temporadas[0]?.season_number ?? null)
   const [cache, setCache] = useState<Record<number, TMDBSeason>>({})
   const [loadingT, setLoadingT] = useState<number | null>(null)
-
-  // rastreia episódios vistos por temporada (UI only)
   const [vistos, setVistos] = useState<Record<string, boolean>>({})
 
   async function toggle(numero: number) {
@@ -280,9 +338,6 @@ function AbaEpisodios({
         const isOpen = aberta === t.season_number
         const season = cache[t.season_number]
         const isLoading = loadingT === t.season_number
-
-        // conta vistos desta temporada
-        const totalEps = t.episode_count
         const vistosCount = season
           ? season.episodes.filter((ep) => vistos[`${t.season_number}-${ep.episode_number}`]).length
           : 0
@@ -300,7 +355,7 @@ function AbaEpisodios({
               <div className="text-left">
                 <p className="text-sm font-semibold text-[#f1f1f3]">{t.name}</p>
                 <p className="mt-0.5 text-xs text-[#5a5a72]">
-                  {vistosCount}/{totalEps} episódios assistidos
+                  {vistosCount}/{t.episode_count} episódios assistidos
                 </p>
               </div>
               <div className="flex items-center gap-2.5">
@@ -364,11 +419,7 @@ function AbaEpisodios({
 
 // linha de episódio
 
-function EpisodeRow({
-  ep,
-  visto,
-  onToggleVisto,
-}: {
+function EpisodeRow({ ep, visto, onToggleVisto }: {
   ep: TMDBEpisode
   visto: boolean
   onToggleVisto: () => void
@@ -377,7 +428,6 @@ function EpisodeRow({
 
   return (
     <div className="flex items-center gap-3 border-b border-[#2a2a38] px-3 py-3 last:border-0">
-
       <button
         onClick={onToggleVisto}
         aria-label={visto ? 'Marcar como não visto' : 'Marcar como visto'}
@@ -391,7 +441,6 @@ function EpisodeRow({
         <Check size={12} aria-hidden="true" />
       </button>
 
-  
       <div className="h-[3.75rem] w-[6.5rem] shrink-0 overflow-hidden rounded-lg bg-[#16161c]">
         {thumb
           ? <img src={thumb} alt="" aria-hidden="true" loading="lazy" className="h-full w-full object-cover" />
@@ -399,7 +448,6 @@ function EpisodeRow({
         }
       </div>
 
-     
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-[#f1f1f3] line-clamp-2 leading-snug">
           {ep.episode_number}. {ep.name}
@@ -408,7 +456,6 @@ function EpisodeRow({
           <p className="mt-0.5 text-xs text-[#5a5a72]">{ep.runtime} min</p>
         )}
       </div>
-
 
       <ChevronRight size={15} className="shrink-0 text-[#2a2a38]" aria-hidden="true" />
     </div>
@@ -467,6 +514,82 @@ function ErrorState({ message, onBack }: { message: string | null; onBack: () =>
       <button onClick={onBack} className="rounded-xl bg-[#6366f1] px-6 py-2.5 text-sm font-medium text-white">
         Voltar
       </button>
+    </div>
+  )
+}
+
+// Bottom sheet: Ver poster / Alterar poster
+function MenuPoster({ onVer, onAlterar, onFechar }: {
+  onVer: () => void
+  onAlterar: () => void
+  onFechar: () => void
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end" role="dialog" aria-modal="true" aria-label="Opções do poster">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onFechar} aria-hidden="true" />
+      <div
+        className="relative w-full rounded-t-3xl border-t border-[#2a2a38] bg-[#16161c] px-4 pt-4"
+        style={{ paddingBottom: 'calc(2rem + env(safe-area-inset-bottom, 0px))' }}
+      >
+        <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-[#2a2a38]" aria-hidden="true" />
+        <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-[#5a5a72]">Poster</p>
+        <div className="flex flex-col gap-2">
+          <button
+            onClick={onVer}
+            className="flex items-center gap-3 rounded-xl bg-[#1c1c24] px-4 py-3.5 text-sm font-medium text-[#f1f1f3] transition-colors hover:bg-[#22222d]"
+          >
+            <ZoomIn size={18} className="text-[#9898ac]" aria-hidden="true" />
+            Ver poster
+          </button>
+          <button
+            onClick={onAlterar}
+            className="flex items-center gap-3 rounded-xl bg-[#1c1c24] px-4 py-3.5 text-sm font-medium text-[#6366f1] transition-colors hover:bg-[#22222d]"
+          >
+            <ImagePlus size={18} className="text-[#6366f1]" aria-hidden="true" />
+            Alterar poster ou Banner
+          </button>
+          <button
+            onClick={onFechar}
+            className="flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-[#5a5a72] transition-colors hover:text-[#9898ac]"
+          >
+            <X size={18} aria-hidden="true" />
+            Cancelar
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// visualizador de poster em tela cheia
+function VisualizadorPoster({ src, title, onFechar }: {
+  src: string
+  title: string
+  onFechar: () => void
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/95"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Poster de ${title}`}
+      onClick={onFechar}
+    >
+      <button
+        className="absolute z-10 flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm"
+        style={{ top: 'calc(env(safe-area-inset-top, 0px) + 16px)', right: '1rem' }}
+        onClick={onFechar}
+        aria-label="Fechar"
+      >
+        <X size={18} aria-hidden="true" />
+      </button>
+      <img
+        src={src}
+        alt={`Poster de ${title}`}
+        className="max-h-[90vh] max-w-[90vw] rounded-2xl object-contain shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+        draggable={false}
+      />
     </div>
   )
 }
