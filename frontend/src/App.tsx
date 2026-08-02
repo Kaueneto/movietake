@@ -6,8 +6,27 @@ import { Assistindo } from './paginas/Assistindo'
 import { Perfil } from './paginas/Perfil'
 import { DetalhesFilme } from './paginas/DetalhesFilme'
 import { DetalhesSerie } from './paginas/DetalhesSerie'
+import { Auth } from './paginas/Auth'
+import { useAuth } from './lib/AuthContext'
+import { Loader2 } from 'lucide-react'
 
 function App() {
+  const { session, loading } = useAuth()
+
+  // aguarda verificar se há sessão ativa
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#0f0f13]">
+        <Loader2 size={28} className="animate-spin text-[#6366f1]" aria-label="Carregando" />
+      </div>
+    )
+  }
+
+  // s nao tem sessao vai pra  tela de autenticação
+  if (!session) {
+    return <Auth />
+  }
+
   return (
     <BrowserRouter>
       <div className="min-h-screen bg-[#0f0f13]">
