@@ -14,6 +14,7 @@ import {
   type TMDBCastMember,
 } from '../lib/api'
 import { useLongPress } from '../hooks/useLongPress'
+import { useUserActions } from '../hooks/useUserActions'
 import { ModalSelecionarImagem } from '../components/midia/ModalSelecionarImagem'
 import { getAuthHeader } from '../lib/supabase'
 
@@ -24,10 +25,10 @@ const SENTIMENTOS = [
   { emoji: '😂', label: 'Engraçado' },
   { emoji: '😭', label: 'Triste' },
   { emoji: '🤯', label: 'Explodiu minha mente' },
-  { emoji: '', label: 'Apaixonado' },
+  { emoji: '😍', label: 'Apaixonado' },
   { emoji: '😱', label: 'Tenso' },
   { emoji: '😴', label: 'Entediante' },
-  { emoji: '', label: 'Raiva' },
+  { emoji: '😡', label: 'Raiva' },
 ]
 
 const ASSISTIU_COM = [
@@ -115,10 +116,13 @@ export function DetalhesFilme() {
   const [menuPoster, setMenuPoster] = useState(false)
   const [verPoster, setVerPoster] = useState(false)
 
+  // Hook de ações — todos os hooks antes dos early returns
+  const acoes = useUserActions(Number(id) || 0, 'movie')
+
   if (loading) return <LoadingState />
   if (error || !filme) return <ErrorState message={error} onBack={() => navigate(-1)} />
 
-  const backdrop = tmdbImage(customBackdrop ?? filme.backdrop_path, 'w780')
+  const backdrop = tmdbImage(customBackdrop ?? filme.backdrop_path, 'original')
   const poster = tmdbImage(customPoster ?? filme.poster_path, 'w342')
   const ano = filme.release_date ? new Date(filme.release_date).getFullYear() : null
   const duracao = formatRuntime(filme.runtime)
@@ -170,7 +174,7 @@ export function DetalhesFilme() {
           {...backdropLongPress}
         >
           {backdrop
-            ? <img src={backdrop} alt="" aria-hidden="true" className="h-full w-full object-cover object-center" draggable={false} />
+            ? <img src={backdrop} alt="" aria-hidden="true" className="h-full w-full object-cover object-top" draggable={false} />
             : <div className="h-full w-full bg-[#16161c]" />
           }
         </div>
@@ -221,10 +225,20 @@ export function DetalhesFilme() {
       </div>
 
       <div className="grid grid-cols-4 gap-2 px-4 pt-4">
-        <ActionBtn icon={<Eye size={20} />} label="Já assisti" />
+        <ActionBtn
+          icon={acoes.loadingAssistido ? <Loader2 size={20} className="animate-spin" /> : <Eye size={20} />}
+          label="Já assisti"
+          ativo={acoes.assistido}
+          onClick={acoes.toggleAssistido}
+        />
         <ActionBtn icon={<Star size={20} />} label="Avaliar" />
         <ActionBtn icon={<ListPlus size={20} />} label="+ Listas" />
-        <ActionBtn icon={<Bookmark size={20} />} label="Quero assistir" />
+        <ActionBtn
+          icon={acoes.loadingWatchlist ? <Loader2 size={20} className="animate-spin" /> : <Bookmark size={20} />}
+          label="Quero assistir"
+          ativo={acoes.naWatchlist}
+          onClick={acoes.toggleWatchlist}
+        />
       </div>
 
       <div className="sticky top-0 z-30 mt-4 bg-[#0f0f13]">
@@ -452,9 +466,22 @@ function AbaDetalhesUsuario({ elenco }: { elenco: TMDBCastMember[] }) {
 
 // Componentes compartilhados
 
-function ActionBtn({ icon, label }: { icon: React.ReactNode; label: string }) {
+function ActionBtn({ icon, label, ativo = false, onClick }: {
+  icon: React.ReactNode
+  label: string
+  ativo?: boolean
+  onClick?: () => void
+}) {
   return (
-    <button className="flex flex-col items-center gap-1.5 rounded-xl border border-[#2a2a38] bg-[#1c1c24] py-3.5 text-[#9898ac] transition-colors hover:border-[#6366f1]/40 hover:text-[#f1f1f3] active:bg-[#22222d]">
+    <button
+      onClick={onClick}
+      className={[
+        'flex flex-col items-center gap-1.5 rounded-xl border py-3.5 transition-colors active:scale-95',
+        ativo
+          ? 'border-[#6366f1]/50 bg-[#6366f1]/15 text-[#6366f1]'
+          : 'border-[#2a2a38] bg-[#1c1c24] text-[#9898ac] hover:border-[#6366f1]/40 hover:text-[#f1f1f3]',
+      ].join(' ')}
+    >
       {icon}
       <span className="text-[10px] font-medium leading-none">{label}</span>
     </button>

@@ -16,6 +16,7 @@ import {
   type TMDBEpisode,
 } from '../lib/api'
 import { useLongPress } from '../hooks/useLongPress'
+import { useUserActions } from '../hooks/useUserActions'
 import { ModalSelecionarImagem } from '../components/midia/ModalSelecionarImagem'
 import { getAuthHeader } from '../lib/supabase'
 
@@ -86,10 +87,12 @@ export function DetalhesSerie() {
     delay: 500,
   })
 
+  const acoes = useUserActions(Number(id) || 0, 'tv')
+
   if (loading) return <LoadingState />
   if (error || !serie) return <ErrorState message={error} onBack={() => navigate(-1)} />
 
-  const backdrop = tmdbImage(customBackdrop ?? serie.backdrop_path, 'w780')
+  const backdrop = tmdbImage(customBackdrop ?? serie.backdrop_path, 'original')
   const poster = tmdbImage(customPoster ?? serie.poster_path, 'w342')
   const ano = serie.first_air_date ? new Date(serie.first_air_date).getFullYear() : null
   const criador = serie.created_by?.[0]
@@ -140,7 +143,7 @@ export function DetalhesSerie() {
           {...backdropLongPress}
         >
           {backdrop
-            ? <img src={backdrop} alt="" aria-hidden="true" className="h-full w-full object-cover object-center" draggable={false} />
+            ? <img src={backdrop} alt="" aria-hidden="true" className="h-full w-full object-cover object-top" draggable={false} />
             : <div className="h-full w-full bg-[#16161c]" />
           }
         </div>
@@ -205,7 +208,7 @@ export function DetalhesSerie() {
 
       <div className="bg-[#0f0f13] pb-28">
         {abaAtiva === 'sobre'
-          ? <AbaSobre serie={serie} elenco={elenco} streaming={streaming} seguindo={seguindo} onSeguir={() => setSeguindo((v) => !v)} />
+          ? <AbaSobre serie={serie} elenco={elenco} streaming={streaming} seguindo={seguindo} onSeguir={() => setSeguindo((v) => !v)} acoes={acoes} />
           : <AbaEpisodios serieId={Number(id)} temporadas={temporadas} />
         }
       </div>
@@ -215,12 +218,13 @@ export function DetalhesSerie() {
 
 // Aba Sobre
 
-function AbaSobre({ serie, elenco, streaming, seguindo, onSeguir }: {
+function AbaSobre({ serie, elenco, streaming, seguindo, onSeguir, acoes }: {
   serie: TMDBSerieDetails
   elenco: TMDBCastMember[]
   streaming: any[]
   seguindo: boolean
   onSeguir: () => void
+  acoes: ReturnType<typeof useUserActions>
 }) {
   return (
     <div className="px-4 pt-4 space-y-6">
@@ -238,9 +242,19 @@ function AbaSobre({ serie, elenco, streaming, seguindo, onSeguir }: {
       </button>
 
       <div className="grid grid-cols-3 gap-2">
-        <ActionBtn icon={<Heart size={20} />} label="Favoritos" />
+        <ActionBtn
+          icon={acoes.loadingFavorito ? <Loader2 size={20} className="animate-spin" /> : <Heart size={20} />}
+          label="Favoritos"
+          ativo={acoes.favorito}
+          onClick={acoes.toggleFavorito}
+        />
         <ActionBtn icon={<ListPlus size={20} />} label="+ Listas" />
-        <ActionBtn icon={<Bookmark size={20} />} label="Quero assistir" />
+        <ActionBtn
+          icon={acoes.loadingWatchlist ? <Loader2 size={20} className="animate-spin" /> : <Bookmark size={20} />}
+          label="Quero assistir"
+          ativo={acoes.naWatchlist}
+          onClick={acoes.toggleWatchlist}
+        />
       </div>
 
       {serie.overview && (
@@ -464,9 +478,22 @@ function EpisodeRow({ ep, visto, onToggleVisto }: {
 
 // Componentes compartilhados
 
-function ActionBtn({ icon, label }: { icon: React.ReactNode; label: string }) {
+function ActionBtn({ icon, label, ativo = false, onClick }: {
+  icon: React.ReactNode
+  label: string
+  ativo?: boolean
+  onClick?: () => void
+}) {
   return (
-    <button className="flex flex-col items-center gap-1.5 rounded-xl border border-[#2a2a38] bg-[#1c1c24] py-3.5 text-[#9898ac] transition-colors hover:border-[#6366f1]/40 hover:text-[#f1f1f3] active:bg-[#22222d]">
+    <button
+      onClick={onClick}
+      className={[
+        'flex flex-col items-center gap-1.5 rounded-xl border py-3.5 transition-colors active:scale-95',
+        ativo
+          ? 'border-[#6366f1]/50 bg-[#6366f1]/15 text-[#6366f1]'
+          : 'border-[#2a2a38] bg-[#1c1c24] text-[#9898ac] hover:border-[#6366f1]/40 hover:text-[#f1f1f3]',
+      ].join(' ')}
+    >
       {icon}
       <span className="text-[10px] font-medium leading-none">{label}</span>
     </button>

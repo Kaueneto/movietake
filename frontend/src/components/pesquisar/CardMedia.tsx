@@ -1,12 +1,23 @@
 import { Star, Tv, Film, Calendar } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { tmdbImage, getTitle, getReleaseYear } from '../../lib/api'
+import { tmdbImage, getTitle, getReleaseYear, api } from '../../lib/api'
 import type { TMDBMovie, TMDBSerie } from '../../lib/api'
 
 interface Props {
   item: TMDBMovie | TMDBSerie
   mediaType: 'movie' | 'tv'
   customPosterPath?: string | null
+}
+
+// cache simples para não prefetch duplicado
+const prefetchado = new Set<string>()
+
+function prefetch(mediaType: 'movie' | 'tv', id: number) {
+  const key = `${mediaType}-${id}`
+  if (prefetchado.has(key)) return
+  prefetchado.add(key)
+  const rota = mediaType === 'movie' ? `/filmes/${id}` : `/series/${id}`
+  api.get(rota).catch(() => { prefetchado.delete(key) })
 }
 
 export function CardMedia({ item, mediaType, customPosterPath }: Props) {
@@ -27,6 +38,8 @@ export function CardMedia({ item, mediaType, customPosterPath }: Props) {
   return (
     <article
       onClick={handleClick}
+      onMouseEnter={() => prefetch(mediaType, item.id)}
+      onTouchStart={() => prefetch(mediaType, item.id)}
       className="group flex flex-col overflow-hidden rounded-2xl border border-[#2a2a38] bg-[#1c1c24] transition-all duration-200 hover:-translate-y-1 hover:border-[#6366f1]/40 hover:shadow-xl hover:shadow-black/40 cursor-pointer"
       aria-label={title}
     >

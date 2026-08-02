@@ -5,6 +5,7 @@ import { supabase } from './supabase'
 interface AuthContextValue {
   session: Session | null
   user: User | null
+  profileId: number | null
   loading: boolean
   signOut: () => Promise<void>
 }
@@ -12,24 +13,39 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue>({
   session: null,
   user: null,
+  profileId: null,
   loading: true,
   signOut: async () => {},
 })
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
+  const [profileId, setProfileId] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
 
+  async function carregarProfile(userId: string) {
+    const { data } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('auth_id', userId)
+      .single()
+    setProfileId(data?.id ?? null)
+  }
+
   useEffect(() => {
-    // sessão inicial
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session)
+      if (data.session?.user) carregarProfile(data.session.user.id)
       setLoading(false)
     })
 
-    // escuta as mudanças de autenticação
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
+      if (session?.user) {
+        carregarProfile(session.user.id)
+      } else {
+        setProfileId(null)
+      }
       setLoading(false)
     })
 
@@ -41,7 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ session, user: session?.user ?? null, loading, signOut }}>
+    <AuthContext.Provider value={{ session, user: session?.user ?? null, profileId, loading, signOut }}>
       {children}
     </AuthContext.Provider>
   )

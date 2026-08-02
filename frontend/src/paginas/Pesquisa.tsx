@@ -8,14 +8,57 @@ import { useDebounce } from '../hooks/useDebounce'
 import {
   pesquisar,
   getTrending,
-  getPreferenciasBatch,
   isPerson,
   type AnyMediaItem,
   type TMDBMediaItem,
   type TMDBPerson,
-  type UserMediaPreferenceBatch,
 } from '../lib/api'
-import { getAuthHeader } from '../lib/supabase'
+import { supabase } from '../lib/supabase'
+
+// Cache fora do componente — persiste entre remontagens e navegações
+// chave: "mediaType-tmdbId" → poster path ou null
+const postersCache: Record<string, string | null> = {}
+// rastreia quais ids já foram consultados para não repetir queries
+const consultados = new Set<string>()
+
+async function buscarPrefs(ids: number[]): Promise<Record<string, string | null>> {
+  const novos = ids.filter((id) => !consultados.has(String(id)))
+  if (novos.length === 0) return {}
+
+  // Marca como consultados imediatamente para evitar chamadas paralelas duplicadas
+  novos.forEach((id) => consultados.add(String(id)))
+
+  try {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return {}
+
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('auth_id', user.id)
+      .single()
+
+    if (!profile) return {}
+
+    const { data } = await supabase
+      .from('user_media_preferences')
+      .select('tmdb_id, media_type, custom_poster_path')
+      .eq('user_id', profile.id)
+      .in('tmdb_id', novos)
+
+    const resultado: Record<string, string | null> = {}
+    for (const p of data ?? []) {
+      const key = `${p.media_type}-${p.tmdb_id}`
+      resultado[key] = p.custom_poster_path
+      postersCache[key] = p.custom_poster_path
+    }
+    return resultado
+  } catch {
+    // Remove do set para permitir retry
+    novos.forEach((id) => consultados.delete(String(id)))
+    return {}
+  }
+}
 
 export function Pesquisa() {
   const [query, setQuery] = useState('')
@@ -25,41 +68,39 @@ export function Pesquisa() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [totalResults, setTotalResults] = useState(0)
-  const [prefs, setPrefs] = useState<Record<string, UserMediaPreferenceBatch>>({})
+  // Inicia com o cache já populado — evita flash ao remontar
+  const [posters, setPosters] = useState<Record<string, string | null>>({ ...postersCache })
 
-  const debouncedQuery = useDebounce(query, 400)
+  const debouncedQuery = useDebounce(query, 350)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  async function carregarPrefs(items: Array<{ tmdb_id: number; media_type: string }>) {
-    try {
-      const authHeader = await getAuthHeader()
-      if (!authHeader) return
-      const { data } = await getPreferenciasBatch(items, authHeader)
-      if (!data || data.length === 0) return
-      setPrefs((prev) => {
-        const next = { ...prev }
-        for (const p of data) {
-          next[`${p.media_type}-${p.tmdb_id}`] = p
-        }
-        return next
-      })
-    } catch {
-      // silencioso — fallback para imagem padrão do TMDB
+  function customPoster(mediaType: string, tmdbId: number): string | null {
+    return posters[`${mediaType}-${tmdbId}`] ?? null
+  }
+
+  async function aplicarPrefs(ids: number[]) {
+    const novos = await buscarPrefs(ids)
+    if (Object.keys(novos).length > 0) {
+      setPosters((p) => ({ ...p, ...novos }))
     }
   }
 
+  // trending — carrega ao montar e quando o filtro muda sem query ativa
   useEffect(() => {
-    getTrending('all', 'week')
+    const tipo = filtro === 'person' ? 'all' : filtro
+    getTrending(tipo, 'week')
       .then(async ({ data }) => {
         const items = data.results
           .filter((r) => r.media_type === 'movie' || r.media_type === 'tv')
           .slice(0, 12)
         setTrending(items)
-        await carregarPrefs(items.map((i) => ({ tmdb_id: i.id, media_type: i.media_type })))
+        // Posters em paralelo sem bloquear exibição
+        aplicarPrefs(items.map((i) => i.id))
       })
       .catch(() => {})
-  }, [])
+  }, [filtro])
 
+  // Busca com debounce
   useEffect(() => {
     if (!debouncedQuery.trim()) {
       setResults([])
@@ -79,14 +120,13 @@ export function Pesquisa() {
         setResults(data.results)
         setTotalResults(data.total_results)
 
-        const midias = data.results.filter(
-          (r) => !isPerson(r as AnyMediaItem) && (r.media_type === 'movie' || r.media_type === 'tv')
-        )
-        if (midias.length > 0) {
-          await carregarPrefs(midias.map((i) => ({ tmdb_id: i.id, media_type: i.media_type! })))
-        }
+        // Busca posters dos resultados em paralelo
+        const ids = data.results
+          .filter((r) => r.media_type === 'movie' || r.media_type === 'tv')
+          .map((r) => r.id)
+        aplicarPrefs(ids)
       } catch {
-        if (!cancelled) setError('Não foi possível buscar. Verifique se o backend está rodando.')
+        if (!cancelled) setError('Não foi possível buscar. Verifique sua conexão.')
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -96,10 +136,6 @@ export function Pesquisa() {
     return () => { cancelled = true }
   }, [debouncedQuery, filtro])
 
-  function customPosterFor(mediaType: string, tmdbId: number): string | null {
-    return prefs[`${mediaType}-${tmdbId}`]?.custom_poster_path ?? null
-  }
-
   const showTrending = !query.trim() && trending.length > 0
   const showEmpty = !loading && !error && query.trim() && results.length === 0
   const mediaItems = results.filter((r): r is TMDBMediaItem => !isPerson(r))
@@ -107,7 +143,7 @@ export function Pesquisa() {
 
   return (
     <PageLayout noPadding>
-      <div className="sticky top-0 z-40 space-y-3 bg-[#0f0f13]/95 px-4 pt-5 pb-3 backdrop-blur-xl">
+            <div className="sticky top-0 z-40 space-y-3 bg-[#0f0f13]/95 px-4 pt-5 pb-3 backdrop-blur-xl">
         <h1 className="text-xl font-bold text-[#f1f1f3]">Pesquisar</h1>
 
         <div className="relative">
@@ -177,7 +213,7 @@ export function Pesquisa() {
                       key={`${item.media_type}-${item.id}`}
                       item={item}
                       mediaType={item.media_type}
-                      customPosterPath={customPosterFor(item.media_type, item.id)}
+                      customPosterPath={customPoster(item.media_type, item.id)}
                     />
                   ))}
                 </div>
@@ -213,7 +249,7 @@ export function Pesquisa() {
                   key={`${item.media_type}-${item.id}`}
                   item={item}
                   mediaType={item.media_type}
-                  customPosterPath={customPosterFor(item.media_type, item.id)}
+                  customPosterPath={customPoster(item.media_type, item.id)}
                 />
               ))}
             </div>
