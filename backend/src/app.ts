@@ -7,8 +7,16 @@ import preferenciasRoutes from './routes/preferencias.routes'
 const app = express()
 
 app.use(cors({
-  origin: true, // em dev aceita qualquer origem
+  origin: (origin, callback) => {
+    // Permite: sem origin (apps mobile/curl), localhost, e domínios Vercel
+    const allowed = !origin
+      || origin.includes('localhost')
+      || origin.includes('vercel.app')
+      || origin === process.env.FRONTEND_URL
+    callback(null, allowed)
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }))
 
 app.use(express.json())
