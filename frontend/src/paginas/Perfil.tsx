@@ -46,6 +46,12 @@ export function Perfil() {
   
       <div className="mb-6 space-y-2">
         <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-[#5a5a72]">Em breve</p>
+        <div className="flex flex-col gap-1 opacity-50">
+          <PlaceholderRow label="Histórico de visualizações" />
+          <PlaceholderRow label="Minhas listas" />
+          <PlaceholderRow label="Seguidores / Seguindo" />
+          <PlaceholderRow label="Editar perfil" />
+        </div>
       </div>
 
       {/* bt de sair  */}
