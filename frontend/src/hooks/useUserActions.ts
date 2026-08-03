@@ -91,15 +91,9 @@ export function useUserActions(tmdbId: number, mediaType: 'movie' | 'tv') {
           tmdb_id: tmdbId,
           media_type: mediaType,
         })
-        // remove da watchlist automaticamente ao marcar como assistido
-        await supabase
-          .from('watchlist')
-          .delete()
-          .eq('user_id', profileId)
-          .eq('tmdb_id', tmdbId)
-          .eq('media_type', mediaType)
+        // mantém na watchlist — o item agora aparece como "assistido" na lista
 
-        setEstado((p) => ({ ...p, assistido: true, naWatchlist: false }))
+        setEstado((p) => ({ ...p, assistido: true }))
       }
     } finally {
       setEstado((p) => ({ ...p, loadingAssistido: false }))

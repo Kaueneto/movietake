@@ -10,6 +10,7 @@ export interface WatchlistItem {
   title: string
   poster_path: string | null
   year: string | null
+  assistido: boolean
 }
 
 export function useWatchlist() {
@@ -25,19 +26,30 @@ export function useWatchlist() {
   async function carregar() {
     setLoading(true)
     try {
-      const { data, error } = await supabase
-        .from('watchlist')
-        .select('id, tmdb_id, media_type')
-        .eq('user_id', profileId)
-        .order('created_at', { ascending: false })
+      // Busca watchlist e watch_history em paralelo
+      const [wlRes, histRes] = await Promise.all([
+        supabase
+          .from('watchlist')
+          .select('id, tmdb_id, media_type')
+          .eq('user_id', profileId)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('watch_history')
+          .select('tmdb_id, media_type')
+          .eq('user_id', profileId),
+      ])
 
-      if (error || !data || data.length === 0) {
+      if (!wlRes.data || wlRes.data.length === 0) {
         setItems([])
         return
       }
 
-      // busca detalhes de cada item em paralelo (máx 20 por vez)
-      const lote = data.slice(0, 20)
+      // Monta set de itens já assistidos para lookup O(1)
+      const assistidosSet = new Set(
+        (histRes.data ?? []).map((h) => `${h.media_type}-${h.tmdb_id}`)
+      )
+
+      const lote = wlRes.data.slice(0, 40)
       const detalhes = await Promise.all(
         lote.map(async (row) => {
           try {
@@ -54,6 +66,7 @@ export function useWatchlist() {
               title,
               poster_path: info.poster_path ?? null,
               year: date ? new Date(date).getFullYear().toString() : null,
+              assistido: assistidosSet.has(`${row.media_type}-${row.tmdb_id}`),
             } as WatchlistItem
           } catch {
             return null
@@ -72,5 +85,9 @@ export function useWatchlist() {
     await supabase.from('watchlist').delete().eq('id', id)
   }
 
-  return { items, loading, remover, recarregar: carregar }
+  // Itens separados por status
+  const paraAssistir = items.filter((i) => !i.assistido)
+  const assistidos = items.filter((i) => i.assistido)
+
+  return { items, paraAssistir, assistidos, loading, remover, recarregar: carregar }
 }

@@ -1,23 +1,24 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Film, Tv, Loader2, BookmarkX } from 'lucide-react'
-import { useWatchlist } from '../hooks/useWatchlist'
+import { ArrowLeft, Film, Tv, Loader2, BookmarkX, Eye, Bookmark } from 'lucide-react'
+import { useWatchlist, type WatchlistItem } from '../hooks/useWatchlist'
 import { tmdbImage } from '../lib/api'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/AuthContext'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 
 export function Watchlist() {
   const navigate = useNavigate()
-  const { items, loading, remover } = useWatchlist()
+  const { paraAssistir, assistidos, loading, remover } = useWatchlist()
   const { profileId } = useAuth()
 
-  // mapa de posters customizados: "mediaType-tmdbId" → path
+  // poster customizados
   const [customPosters, setCustomPosters] = useState<Record<string, string | null>>({})
+  const allItems = [...paraAssistir, ...assistidos]
 
-  // carrega posters personalizados de todos os itens da watchlist
   useEffect(() => {
-    if (!profileId || items.length === 0) return
-    const ids = items.map((i) => i.tmdb_id)
+    if (!profileId || allItems.length === 0) return
+    const ids = allItems.map((i) => i.tmdb_id)
     supabase
       .from('user_media_preferences')
       .select('tmdb_id, media_type, custom_poster_path')
@@ -25,22 +26,23 @@ export function Watchlist() {
       .in('tmdb_id', ids)
       .then(({ data }) => {
         const mapa: Record<string, string | null> = {}
-        for (const p of data ?? []) {
-          mapa[`${p.media_type}-${p.tmdb_id}`] = p.custom_poster_path
-        }
+        for (const p of data ?? []) mapa[`${p.media_type}-${p.tmdb_id}`] = p.custom_poster_path
         setCustomPosters(mapa)
       })
-  }, [profileId, items.length])
+  }, [profileId, allItems.length]) // eslint-disable-line
 
-  function posterFor(item: { tmdb_id: number; media_type: string; poster_path: string | null }) {
+  function posterFor(item: WatchlistItem) {
     const custom = customPosters[`${item.media_type}-${item.tmdb_id}`]
     return tmdbImage(custom ?? item.poster_path, 'w342')
   }
 
+  const total = paraAssistir.length + assistidos.length
+
   return (
     <div className="min-h-screen bg-[#0f0f13] pb-28">
       {/* Header */}
-      <div className="sticky top-0 z-40 flex items-center gap-3 border-b border-[#2a2a38] bg-[#0f0f13]/95 px-4 backdrop-blur-xl"
+      <div
+        className="sticky top-0 z-40 flex items-center gap-3 border-b border-[#2a2a38] bg-[#0f0f13]/95 px-4 backdrop-blur-xl"
         style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)', paddingBottom: '12px' }}
       >
         <button
@@ -54,7 +56,7 @@ export function Watchlist() {
           <h1 className="text-base font-bold text-[#f1f1f3]">Quero assistir</h1>
           {!loading && (
             <p className="text-xs text-[#5a5a72]">
-              {items.length} {items.length === 1 ? 'título' : 'títulos'}
+              {total} {total === 1 ? 'título' : 'títulos'}
             </p>
           )}
         </div>
@@ -69,7 +71,7 @@ export function Watchlist() {
         )}
 
         {/* Vazio */}
-        {!loading && items.length === 0 && (
+        {!loading && total === 0 && (
           <div className="flex flex-col items-center gap-3 py-20 text-center">
             <BookmarkX size={40} className="text-[#2a2a38]" aria-hidden="true" />
             <p className="text-sm font-medium text-[#9898ac]">Nenhum título na lista</p>
@@ -83,47 +85,106 @@ export function Watchlist() {
           </div>
         )}
 
-        {/* grid de posters */}
-        {!loading && items.length > 0 && (
-          <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-4">
-            {items.map((item) => {
-              const poster = posterFor(item)
-              const isTV = item.media_type === 'tv'
-              return (
-                <div key={item.id} className="flex flex-col gap-1.5 group">
-                  {/* poster clicável */}
-                  <button
-                    onClick={() => navigate(isTV ? `/series/${item.tmdb_id}` : `/filmes/${item.tmdb_id}`)}
-                  className="relative w-full overflow-hidden rounded-md border border-white/[0.1] bg-[#1c1c24] transition-all duration-200 group-hover:-translate-y-0.5 group-hover:border-indigo-400/30 group-hover:shadow-lg group-hover:shadow-black/40"   
-                 aria-label={item.title}
-                  >
-                    <div className="aspect-[2/3]">
-                      {poster ? (
-                        <img
-                          src={poster}
-                          alt={item.title}
-                          loading="lazy"
-                          className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                          draggable={false}
-                        />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center text-[#5a5a72]">
-                          {isTV ? <Tv size={28} /> : <Film size={28} />}
-                        </div>
-                      )}
-                    </div>
-                  </button>
+        {/* para assistir */}
+        {!loading && paraAssistir.length > 0 && (
+          <section className="mb-8" aria-label="Para assistir">
+            <div className="mb-3 flex items-center gap-2">
+              <Bookmark size={14} className="text-[#6366f1]" aria-hidden="true" />
+              <h2 className="text-sm font-semibold text-[#f1f1f3]">Para assistir</h2>
+              <span className="rounded-full bg-[#6366f1]/15 px-2 py-0.5 text-[11px] font-semibold text-[#6366f1]">
+                {paraAssistir.length}
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
+              {paraAssistir.map((item) => (
+                <PosterCard
+                  key={item.id}
+                  item={item}
+                  poster={posterFor(item)}
+                  onRemover={() => remover(item.id)}
+                  onClick={() => navigate(item.media_type === 'tv' ? `/series/${item.tmdb_id}` : `/filmes/${item.tmdb_id}`)}
+                />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* assistidos */}
+        {!loading && assistidos.length > 0 && (
+          <section aria-label="Já assistidos">
+            <div className="mb-3 flex items-center gap-2">
+              <Eye size={14} className="text-green-500" aria-hidden="true" />
+              <h2 className="text-sm font-semibold text-[#f1f1f3]">Já assistidos</h2>
+              <span className="rounded-full bg-green-500/15 px-2 py-0.5 text-[11px] font-semibold text-green-500">
+                {assistidos.length}
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
+              {assistidos.map((item) => (
+                <PosterCard
+                  key={item.id}
+                  item={item}
+                  poster={posterFor(item)}
+                  onRemover={() => remover(item.id)}
+                  onClick={() => navigate(item.media_type === 'tv' ? `/series/${item.tmdb_id}` : `/filmes/${item.tmdb_id}`)}
+                  dimmed
+                />
+              ))}
+            </div>
+          </section>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function PosterCard({ item, poster, onClick, dimmed }: {
+  item: WatchlistItem
+  poster: string | null
+  onClick: () => void
+  onRemover: () => void
+  dimmed?: boolean
+}) {
+  const isTV = item.media_type === 'tv'
+
+  return (
+    <div className={['flex flex-col gap-1.5 group', dimmed ? 'opacity-60' : ''].join(' ')}>
+      <div className="relative">
+        <button
+          onClick={onClick}
+          className="w-full overflow-hidden rounded-xl border border-[#2a2a38] bg-[#1c1c24] transition-all duration-200 group-hover:-translate-y-0.5 group-hover:border-[#6366f1]/40 group-hover:shadow-lg group-hover:shadow-black/40"
+          aria-label={item.title}
+        >
+          <div className="aspect-[2/3]">
+            {poster ? (
+              <img
+                src={poster}
+                alt={item.title}
+                loading="lazy"
+                className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                draggable={false}
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center text-[#5a5a72]">
+                {isTV ? <Tv size={28} /> : <Film size={28} />}
+              </div>
+            )}
+          </div>
+        </button>
 
                   {/* nome que aparecera abaixo do poster */}
-                  <p className="line-clamp-2 text-center text-[12px] font-medium leading-tight text-white/60 font-segoe">
-                    {item.title}
-                  </p>
-                </div>
-              )
-            })}
+        {dimmed && (
+          <div className="absolute left-1.5 top-1.5 flex items-center gap-1 rounded-full bg-green-500/90 px-1.5 py-0.5 backdrop-blur-sm">
+            <Eye size={10} className="text-white" aria-hidden="true" />
+            <span className="text-[9px] font-semibold text-white">Visto</span>
           </div>
         )}
       </div>
+
+      <p className="line-clamp-2 text-center text-[11px] font-medium leading-tight text-[#9898ac]">
+        {item.title}
+        {item.year && <span className="text-[#5a5a72]"> ({item.year})</span>}
+      </p>
     </div>
   )
 }

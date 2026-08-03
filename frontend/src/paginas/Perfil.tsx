@@ -1,67 +1,182 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  LogOut, User, Mail, Shield, ChevronRight,
-  Loader2, Bookmark, Film, Tv, BookmarkX,
+  LogOut, ChevronRight, Loader2, Bookmark,
+  Film, Tv, BookmarkX, Camera, ImagePlus, Plus,
 } from 'lucide-react'
 import { PageLayout } from '../components/layout/PageLayout'
 import { useAuth } from '../lib/AuthContext'
+import { usePerfil } from '../hooks/usePerfil'
 import { useWatchlist, type WatchlistItem } from '../hooks/useWatchlist'
+import { useFavoriteFilms } from '../hooks/useFavoriteFilms'
 import { tmdbImage } from '../lib/api'
+import { ModalSelecionarFavorito } from '../components/perfil/ModalSelecionarFavorito'
 
 export function Perfil() {
   const { user, signOut } = useAuth()
   const navigate = useNavigate()
+  const { perfil, salvando, atualizarAvatar, atualizarBackdrop } = usePerfil()
+  const { items: watchlist, loading: loadingWl } = useWatchlist()
+  const { films: favFilms, loading: loadingFav, definir: definirFavorito } = useFavoriteFilms()
+  const [slotEditando, setSlotEditando] = useState<number | null>(null)
   const [saindo, setSaindo] = useState(false)
 
-  const { items: watchlist, loading: loadingWl } = useWatchlist()
+  const avatarInputRef = useRef<HTMLInputElement>(null)
+  const backdropInputRef = useRef<HTMLInputElement>(null)
 
-  const username = user?.user_metadata?.username ?? user?.email?.split('@')[0] ?? 'Usuário'
-  const email = user?.email ?? ''
-  const avatarLetra = username[0]?.toUpperCase() ?? '?'
+  const displayName = perfil?.display_name ?? user?.user_metadata?.username ?? user?.email?.split('@')[0] ?? 'Usuário'
+  const username = perfil?.username ?? user?.email?.split('@')[0] ?? ''
+  const avatarUrl = perfil?.avatar_url
+  const backdropUrl = perfil?.backdrop_url
+  const avatarLetra = displayName[0]?.toUpperCase() ?? '?'
 
   async function handleSignOut() {
     setSaindo(true)
     await signOut()
   }
 
+  function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (file) atualizarAvatar(file)
+    e.target.value = ''
+  }
+
+  function handleBackdropChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (file) atualizarBackdrop(file)
+    e.target.value = ''
+  }
+
   return (
     <PageLayout noPadding>
-      {/* Hero do perfil */}
-      <div className="flex flex-col items-center gap-3 px-4 pt-8 pb-6">
+
+      {/* Modal de seleção de favorito */}
+      {slotEditando && (
+        <ModalSelecionarFavorito
+          position={slotEditando}
+          onSelecionar={async (tmdb_id, media_type) => {
+            await definirFavorito(slotEditando, tmdb_id, media_type)
+            setSlotEditando(null)
+          }}
+          onFechar={() => setSlotEditando(null)}
+        />
+      )}
+
+      <div className="relative mb-20">
+        {/* Backdrop */}
         <div
-          className="flex h-20 w-20 items-center justify-center rounded-full bg-[#6366f1]/20 text-3xl font-bold text-[#6366f1]"
-          aria-hidden="true"
+          className="relative w-full overflow-hidden bg-[#16161c] cursor-pointer group"
+          style={{ height: 'calc(180px + env(safe-area-inset-top, 0px))' }}
+          onClick={() => backdropInputRef.current?.click()}
+          role="button"
+          aria-label="Alterar foto de capa"
         >
-          {avatarLetra}
+          {backdropUrl ? (
+            <img src={backdropUrl} alt="" aria-hidden="true" className="h-full w-full object-cover object-top" />
+          ) : (
+            <div className="h-full w-full bg-gradient-to-br from-[#1c1c24] to-[#0f0f13]" />
+          )}
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-[#0f0f13]" />
+          <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors group-hover:bg-black/25">
+            <div className="flex items-center gap-1.5 rounded-full bg-black/50 px-3 py-1.5 opacity-0 backdrop-blur-sm transition-opacity group-hover:opacity-100">
+              <ImagePlus size={14} className="text-white" aria-hidden="true" />
+              <span className="text-xs font-medium text-white">Alterar capa</span>
+            </div>
+          </div>
         </div>
-        <div className="text-center">
-          <h1 className="text-lg font-bold text-[#f1f1f3]">{username}</h1>
-          <p className="text-sm text-[#5a5a72]">{email}</p>
+
+        {/* avatar + info — sobrepostos */}
+        <div className="absolute -bottom-16 left-4 flex items-end gap-3 right-4">
+          {/* avatar */}
+          <div
+            className="relative cursor-pointer shrink-0"
+            onClick={() => avatarInputRef.current?.click()}
+            role="button"
+            aria-label="Alterar foto de perfil"
+          >
+            <div className="h-20 w-20 overflow-hidden rounded-full border-[3px] border-[#0f0f13] bg-[#1c1c24] shadow-xl">
+              {avatarUrl ? (
+                <img src={avatarUrl} alt={displayName} className="h-full w-full object-cover object-top" />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center bg-[#6366f1]/15 text-2xl font-bold text-[#6366f1]">
+                  {avatarLetra}
+                </div>
+              )}
+            </div>
+            <div className="absolute bottom-0 right-0 flex h-6 w-6 items-center justify-center rounded-full border-2 border-[#0f0f13] bg-[#6366f1] shadow-md">
+              <Camera size={11} className="text-white" aria-hidden="true" />
+            </div>
+            {salvando && (
+              <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/50">
+                <Loader2 size={16} className="animate-spin text-white" />
+              </div>
+            )}
+          </div>
+
+          {/* Nome + @username + stats */}
+          <div className="pb-1 min-w-0 flex-1">
+            <p className="truncate text-base font-bold leading-tight text-[#f1f1f3]">{displayName}</p>
+            <p className="text-xs text-[#5a5a72]">@{username}</p>
+            {perfil && (
+              <div className="mt-1.5 flex items-center gap-3">
+                <Stat valor={perfil.seguidores} label="seguidores" />
+                <Stat valor={perfil.seguindo} label="seguindo" />
+                <Stat valor={perfil.reviews} label="reviews" />
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
+      {/* Inputs ocultos */}
+      <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} aria-hidden="true" />
+      <input ref={backdropInputRef} type="file" accept="image/*" className="hidden" onChange={handleBackdropChange} aria-hidden="true" />
+
       <div className="px-4 pb-28 space-y-6">
 
-        {/* infos da conta */}
-        <div className="space-y-2">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-[#5a5a72]">Conta</p>
-          <InfoRow icon={<User size={17} />} label="Nome de usuário" value={username} />
-          <InfoRow icon={<Mail size={17} />} label="E-mail" value={email} />
-          <InfoRow
-            icon={<Shield size={17} />}
-            label="Status"
-            value={user?.email_confirmed_at ? 'Verificado' : 'Aguardando verificação'}
-            valueClass={user?.email_confirmed_at ? 'text-green-400' : 'text-yellow-400'}
-          />
+        {/* Filmes favoritos */}
+        <div>
+          <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-[#5a5a72]">Filmes favoritos</p>
+          {loadingFav ? (
+            <div className="flex justify-center py-6">
+              <Loader2 size={20} className="animate-spin text-[#5a5a72]" />
+            </div>
+          ) : (
+            <div className="grid grid-cols-4 gap-2">
+              {[1, 2, 3, 4].map((pos) => {
+                const film = favFilms.find((f) => f.position === pos)
+                const poster = film ? tmdbImage(film.poster_path, 'w185') : null
+                return (
+                  <div key={pos} className="flex flex-col gap-1">
+                    <div className="aspect-[2/3] overflow-hidden rounded-xl bg-[#1c1c24]">
+                      {film && poster ? (
+                        <img src={poster} alt={film.title} loading="lazy" className="h-full w-full object-cover" draggable={false} />
+                      ) : (
+                        <button
+                          onClick={() => setSlotEditando(pos)}
+                          className="flex h-full w-full items-center justify-center text-[#2a2a38] hover:text-[#6366f1] transition-colors"
+                          aria-label={`Adicionar filme favorito ${pos}`}
+                        >
+                          <Plus size={22} />
+                        </button>
+                      )}
+                    </div>
+                    {film && (
+                      <p className="line-clamp-1 text-center text-[10px] text-[#5a5a72]">{film.title}</p>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
 
-        {/* quero assistir */}
+        {/* Quero assistir */}
         <div>
           <button
             onClick={() => navigate('/watchlist')}
             className="mb-3 flex w-full items-center justify-between"
-            aria-label="Ver lista completa de quero assistir"
+            aria-label="Ver lista de quero assistir"
           >
             <div className="flex items-center gap-2">
               <Bookmark size={15} className="text-[#6366f1]" aria-hidden="true" />
@@ -108,17 +223,14 @@ export function Perfil() {
           </div>
         </div>
 
-      {/* bt de sair  */}
+        {/* Sair */}
         <button
           onClick={handleSignOut}
           disabled={saindo}
           className="flex w-full items-center justify-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 py-3.5 text-sm font-semibold text-red-400 transition-colors hover:bg-red-500/20 disabled:opacity-50"
           aria-label="Sair da conta"
         >
-          {saindo
-            ? <Loader2 size={16} className="animate-spin" aria-hidden="true" />
-            : <LogOut size={16} aria-hidden="true" />
-          }
+          {saindo ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <LogOut size={16} aria-hidden="true" />}
           {saindo ? 'Saindo...' : 'Sair da conta'}
         </button>
       </div>
@@ -126,68 +238,41 @@ export function Perfil() {
   )
 }
 
-// Layout de posters sobrepostos — clique no bloco navega para /watchlist
+// Posters sobrepostos sem bordas grossas
 function PosterStack({ items }: { items: WatchlistItem[] }) {
   const [hovered, setHovered] = useState<number | null>(null)
-
-  // Largura visível de cada poster (a parte que fica exposta)
-  const POSTER_W = 88   // largura total do poster
-  const OVERLAP = 28    // quanto o próximo cobre o anterior
-
+  const POSTER_W = 88
+  const OVERLAP = 28
   const totalWidth = POSTER_W + (items.length - 1) * (POSTER_W - OVERLAP)
 
   return (
-    <div
-      className="relative overflow-x-auto overflow-y-visible pb-2"
-      style={{ scrollbarWidth: 'none' }}
-      aria-label="Lista de filmes e séries para assistir"
-    >
-      {/* Container com largura exata para os posters sobrepostos */}
-      <div
-        className="relative"
-        style={{
-          height: 148,  // aspect 2/3 de 88px ≈ 132px + texto
-          width: Math.max(totalWidth, 0),
-          minWidth: '100%',
-        }}
-      >
+    <div className="overflow-x-auto overflow-y-visible pb-2" style={{ scrollbarWidth: 'none' }}>
+      <div className="relative" style={{ height: 132, width: Math.max(totalWidth, 0), minWidth: '100%' }}>
         {items.map((item, i) => {
-          const poster = tmdbImage(item.poster_path, 'w185')
-          const isTV = item.media_type === 'tv'
           const isHovered = hovered === item.id
-          const left = i * (POSTER_W - OVERLAP)
-
           return (
-            <button
+            <div
               key={item.id}
-              onClick={() => {/* navegação via bloco pai */}}
               onMouseEnter={() => setHovered(item.id)}
               onMouseLeave={() => setHovered(null)}
-              onTouchStart={() => setHovered(item.id)}
-              onTouchEnd={() => setHovered(null)}
-              aria-label={`${item.title}${item.year ? ` (${item.year})` : ''}`}
-              className="absolute top-0 transition-all duration-200 focus:outline-none"
+              className="absolute top-0 transition-all duration-200"
               style={{
-                left,
+                left: i * (POSTER_W - OVERLAP),
                 width: POSTER_W,
                 zIndex: isHovered ? 20 : i + 1,
                 transform: isHovered ? 'translateY(-6px) scale(1.04)' : 'none',
               }}
             >
-              {/* Poster */}
               <div
-                className="overflow-hidden rounded-xl border shadow-lg"
+                className="overflow-hidden rounded-xl"
                 style={{
                   height: 132,
-                  borderColor: isHovered ? '#00bbffff' : 'rgba(255,255,255,0.08)',
-                  boxShadow: isHovered
-                    ? '0 8px 24px rgba(99,102,241,0.35)'
-                    : '0 4px 12px rgba(0,0,0,0.5)',
+                  boxShadow: isHovered ? '0 8px 24px rgba(99,102,241,0.3)' : '0 2px 8px rgba(0,0,0,0.4)',
                 }}
               >
-                {poster ? (
+                {item.poster_path ? (
                   <img
-                    src={poster}
+                    src={`https://image.tmdb.org/t/p/w185${item.poster_path}`}
                     alt={item.title}
                     loading="lazy"
                     className="h-full w-full object-cover"
@@ -195,30 +280,13 @@ function PosterStack({ items }: { items: WatchlistItem[] }) {
                   />
                 ) : (
                   <div className="flex h-full w-full items-center justify-center bg-[#1c1c24] text-[#5a5a72]">
-                    {isTV ? <Tv size={22} /> : <Film size={22} />}
+                    {item.media_type === 'tv' ? <Tv size={22} /> : <Film size={22} />}
                   </div>
                 )}
               </div>
-            </button>
+            </div>
           )
         })}
-      </div>
-    </div>
-  )
-}
-
-function InfoRow({ icon, label, value, valueClass }: {
-  icon: React.ReactNode
-  label: string
-  value: string
-  valueClass?: string
-}) {
-  return (
-    <div className="flex items-center gap-3 rounded-xl border border-[#2a2a38] bg-[#1c1c24] px-4 py-3">
-      <span className="text-[#5a5a72]" aria-hidden="true">{icon}</span>
-      <div className="flex-1 min-w-0">
-        <p className="text-xs text-[#5a5a72]">{label}</p>
-        <p className={`truncate text-sm font-medium ${valueClass ?? 'text-[#f1f1f3]'}`}>{value}</p>
       </div>
     </div>
   )
@@ -230,5 +298,14 @@ function PlaceholderRow({ label }: { label: string }) {
       <span className="text-sm text-[#9898ac]">{label}</span>
       <ChevronRight size={15} className="text-[#2a2a38]" aria-hidden="true" />
     </div>
+  )
+}
+
+function Stat({ valor, label }: { valor: number; label: string }) {
+  return (
+    <span className="flex items-baseline gap-1">
+      <span className="text-sm font-bold text-[#f1f1f3]">{valor}</span>
+      <span className="text-xs text-[#5a5a72]">{label}</span>
+    </span>
   )
 }
