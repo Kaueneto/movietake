@@ -7,6 +7,7 @@ import { Perfil } from './paginas/Perfil'
 import { DetalhesFilme } from './paginas/DetalhesFilme'
 import { DetalhesSerie } from './paginas/DetalhesSerie'
 import { DetalhesEpisodio } from './paginas/DetalhesEpisodio'
+import { Watchlist } from './paginas/Watchlist'
 import { Auth } from './paginas/Auth'
 import { useAuth } from './lib/AuthContext'
 import { Loader2 } from 'lucide-react'
@@ -39,6 +40,7 @@ function App() {
           <Route path="/filmes/:id" element={<DetalhesFilme />} />
           <Route path="/series/:id" element={<DetalhesSerie />} />
           <Route path="/series/:serieId/temporadas/:temporada/episodios/:episodio" element={<DetalhesEpisodio />} />
+          <Route path="/watchlist" element={<Watchlist />} />
         </Routes>
         <BottomNavCondicional />
       </div>
@@ -48,7 +50,7 @@ function App() {
 
 function BottomNavCondicional() {
   const { pathname } = useLocation()
-  const esconder = pathname.startsWith('/filmes/') || pathname.startsWith('/series/')
+  const esconder = pathname.startsWith('/filmes/') || pathname.startsWith('/series/') || pathname === '/watchlist'
   if (esconder) return null
   return <BottomNav />
 }
