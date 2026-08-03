@@ -176,10 +176,10 @@ function PosterStack({ items }: { items: WatchlistItem[] }) {
             >
               {/* Poster */}
               <div
-                className="overflow-hidden rounded-xl border-2 shadow-lg"
+                className="overflow-hidden rounded-xl border shadow-lg"
                 style={{
                   height: 132,
-                  borderColor: isHovered ? '#6366f1' : 'rgba(255,255,255,0.08)',
+                  borderColor: isHovered ? '#00bbffff' : 'rgba(255,255,255,0.08)',
                   boxShadow: isHovered
                     ? '0 8px 24px rgba(99,102,241,0.35)'
                     : '0 4px 12px rgba(0,0,0,0.5)',
