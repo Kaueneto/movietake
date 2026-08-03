@@ -57,3 +57,20 @@ export async function temporadaSerie(req: Request, res: Response) {
     res.status(502).json({ error: 'Falha ao consultar o TMDB.' })
   }
 }
+
+// GET /api/series/:id/temporadas/:temporada/episodios/:episodio
+export async function detalhesEpisodio(req: Request, res: Response) {
+  const id = Number(req.params.id)
+  const temporada = Number(req.params.temporada)
+  const episodio = Number(req.params.episodio)
+  if (isNaN(id) || isNaN(temporada) || isNaN(episodio)) {
+    res.status(400).json({ error: 'Parâmetros inválidos.' }); return
+  }
+  try {
+    const data = await tmdbService.getEpisodeDetails(id, temporada, episodio)
+    res.json(data)
+  } catch (err: any) {
+    console.error('[detalhesEpisodio] erro:', err?.message)
+    res.status(502).json({ error: 'Falha ao consultar o TMDB.' })
+  }
+}

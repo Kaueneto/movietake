@@ -6,6 +6,7 @@ import { Assistindo } from './paginas/Assistindo'
 import { Perfil } from './paginas/Perfil'
 import { DetalhesFilme } from './paginas/DetalhesFilme'
 import { DetalhesSerie } from './paginas/DetalhesSerie'
+import { DetalhesEpisodio } from './paginas/DetalhesEpisodio'
 import { Auth } from './paginas/Auth'
 import { useAuth } from './lib/AuthContext'
 import { Loader2 } from 'lucide-react'
@@ -37,6 +38,7 @@ function App() {
           <Route path="/perfil"     element={<Perfil />} />
           <Route path="/filmes/:id" element={<DetalhesFilme />} />
           <Route path="/series/:id" element={<DetalhesSerie />} />
+          <Route path="/series/:serieId/temporadas/:temporada/episodios/:episodio" element={<DetalhesEpisodio />} />
         </Routes>
         <BottomNavCondicional />
       </div>

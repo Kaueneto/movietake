@@ -101,6 +101,13 @@ export async function getSerieSeason(serieId: number, seasonNumber: number) {
   return data
 }
 
+export async function getEpisodeDetails(serieId: number, season: number, episode: number) {
+  const { data } = await get(`/tv/${serieId}/season/${season}/episode/${episode}`, {
+    params: { append_to_response: 'credits' },
+  })
+  return data
+}
+
 export async function getMovieProviders(id: number) {
   const { data } = await get(`/movie/${id}/watch/providers`)
   return data

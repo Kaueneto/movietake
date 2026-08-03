@@ -18,7 +18,9 @@ import {
 import { useLongPress } from '../hooks/useLongPress'
 import { useUserActions } from '../hooks/useUserActions'
 import { ModalSelecionarImagem } from '../components/midia/ModalSelecionarImagem'
-import { getAuthHeader } from '../lib/supabase'
+import { ModalOrdemCronologica } from '../components/serie/ModalOrdemCronologica'
+import { getAuthHeader, supabase } from '../lib/supabase'
+import { useAuth } from '../lib/AuthContext'
 
 const HERO_HEIGHT = 420
 
@@ -194,7 +196,7 @@ export function DetalhesSerie() {
               key={aba}
               onClick={() => setAbaAtiva(aba)}
               className={[
-                'flex-1 py-3.5 text-sm font-semibold uppercase tracking-wider transition-colors',
+                'flex-1 py-3.5 text-base font- font-segoe  tracking-wider transition-colors',
                 abaAtiva === aba
                   ? 'border-b-2 border-[#6366f1] text-[#f1f1f3]'
                   : 'text-[#5a5a72]',
@@ -318,10 +320,89 @@ function AbaEpisodios({ serieId, temporadas }: {
   serieId: number
   temporadas: Array<{ season_number: number; name: string; episode_count: number }>
 }) {
+  const { profileId } = useAuth()
   const [aberta, setAberta] = useState<number | null>(temporadas[0]?.season_number ?? null)
   const [cache, setCache] = useState<Record<number, TMDBSeason>>({})
   const [loadingT, setLoadingT] = useState<number | null>(null)
-  const [vistos, setVistos] = useState<Record<string, boolean>>({})
+  const [vistos, setVistos] = useState<Record<number, boolean>>({})
+  const [salvandoEp, setSalvandoEp] = useState<number | null>(null)
+
+  // estado do modal de ordem cronológica
+  type PendingAction =
+    | { tipo: 'episodio'; ep: TMDBEpisode }
+    | { tipo: 'temporada'; season: TMDBSeason }
+
+  const [pendente, setPendente] = useState<PendingAction | null>(null)
+  const [qtdAnteriores, setQtdAnteriores] = useState(0)
+
+  // busca todas as temporadas anteriores que ainda não estão no cache
+  async function garantirTemporadasAnteriores(targetSeason: number) {
+    const faltam = temporadas
+      .filter((t) => t.season_number < targetSeason && !cache[t.season_number])
+    if (faltam.length === 0) return
+
+    const resultados = await Promise.all(
+      faltam.map((t) => getTemporadaSerie(serieId, t.season_number).then((r) => r.data))
+    )
+    setCache((c) => {
+      const next = { ...c }
+      resultados.forEach((s) => { next[s.season_number] = s })
+      return next
+    })
+  }
+
+  // retorna todos os episódios anteriores não assistidos (usa cache atualizado)
+  function episodiosAnterioresNaoVistos(
+    targetSeason: number,
+    targetEpisode: number,
+    cacheAtualizado: Record<number, TMDBSeason>
+  ): TMDBEpisode[] {
+    const anteriores: TMDBEpisode[] = []
+    for (const [sNum, season] of Object.entries(cacheAtualizado)) {
+      const s = Number(sNum)
+      for (const ep of season.episodes) {
+        if (vistos[ep.id]) continue
+        if (s < targetSeason) anteriores.push(ep)
+        else if (s === targetSeason && ep.episode_number < targetEpisode) anteriores.push(ep)
+      }
+    }
+    return anteriores
+  }
+
+  // salva lista de episódios no banco
+  async function salvarEpisodios(eps: TMDBEpisode[]) {
+    if (!profileId || eps.length === 0) return
+    await supabase.from('series_episode_history').upsert(
+      eps.map((ep) => ({
+        user_id: profileId,
+        tmdb_id: serieId,
+        season_number: ep.season_number,
+        episode_number: ep.episode_number,
+        episode_tmdb_id: ep.id,
+      })),
+      { onConflict: 'user_id,episode_tmdb_id' }
+    )
+    setVistos((v) => {
+      const next = { ...v }
+      eps.forEach((ep) => { next[ep.id] = true })
+      return next
+    })
+  }
+
+  // carregas todos os episódios assistidos
+  useEffect(() => {
+    if (!profileId) return
+    supabase
+      .from('series_episode_history')
+      .select('episode_tmdb_id')
+      .eq('user_id', profileId)
+      .eq('tmdb_id', serieId)
+      .then(({ data }) => {
+        const mapa: Record<number, boolean> = {}
+        for (const row of data ?? []) mapa[row.episode_tmdb_id] = true
+        setVistos(mapa)
+      })
+  }, [profileId, serieId])
 
   async function toggle(numero: number) {
     if (aberta === numero) { setAberta(null); return }
@@ -338,8 +419,120 @@ function AbaEpisodios({ serieId, temporadas }: {
     }
   }
 
-  function toggleVisto(key: string) {
-    setVistos((v) => ({ ...v, [key]: !v[key] }))
+  async function toggleEpisodio(ep: TMDBEpisode) {
+    if (!profileId || salvandoEp === ep.id) return
+    const jaVisto = !!vistos[ep.id]
+
+    // se está desmarcando, sem necessidade de verificação
+    if (jaVisto) {
+      setSalvandoEp(ep.id)
+      setVistos((v) => ({ ...v, [ep.id]: false }))
+      try {
+        await supabase
+          .from('series_episode_history')
+          .delete()
+          .eq('user_id', profileId)
+          .eq('episode_tmdb_id', ep.id)
+      } catch {
+        setVistos((v) => ({ ...v, [ep.id]: true }))
+      } finally {
+        setSalvandoEp(null)
+      }
+      return
+    }
+
+    // verifica se há episódios anteriores não assistidos
+    // garante que todas as temporadas anteriores estão no cache antes de verificar
+    await garantirTemporadasAnteriores(ep.season_number)
+    const cacheAtual = { ...cache }
+    // inclui a temporada atual se já carregada
+    const anteriores = episodiosAnterioresNaoVistos(ep.season_number, ep.episode_number, cacheAtual)
+    if (anteriores.length > 0) {
+      setQtdAnteriores(anteriores.length)
+      setPendente({ tipo: 'episodio', ep })
+      return
+    }
+
+    // marca diretamente
+    setSalvandoEp(ep.id)
+    setVistos((v) => ({ ...v, [ep.id]: true }))
+    try {
+      await supabase.from('series_episode_history').upsert(
+        { user_id: profileId, tmdb_id: serieId, season_number: ep.season_number, episode_number: ep.episode_number, episode_tmdb_id: ep.id },
+        { onConflict: 'user_id,episode_tmdb_id' }
+      )
+    } catch {
+      setVistos((v) => ({ ...v, [ep.id]: false }))
+    } finally {
+      setSalvandoEp(null)
+    }
+  }
+
+  async function marcarTemporadaInteira(season: TMDBSeason) {
+    if (!profileId) return
+    const todosVistos = season.episodes.every((ep) => !!vistos[ep.id])
+
+    if (todosVistos) {
+      const ids = season.episodes.map((ep) => ep.id)
+      setVistos((v) => { const next = { ...v }; ids.forEach((id) => delete next[id]); return next })
+      await supabase.from('series_episode_history').delete()
+        .eq('user_id', profileId).eq('tmdb_id', serieId).in('episode_tmdb_id', ids)
+      return
+    }
+
+    //verifica episódios anteriores à temporada — carrega temporadas faltantes
+    const primeiroNaoVisto = season.episodes.find((ep) => !vistos[ep.id])
+    if (!primeiroNaoVisto) return
+    await garantirTemporadasAnteriores(season.season_number)
+    const cacheAtual = { ...cache }
+    const anteriores = episodiosAnterioresNaoVistos(season.season_number, primeiroNaoVisto.episode_number, cacheAtual)
+
+    if (anteriores.length > 0) {
+      setQtdAnteriores(anteriores.length)
+      setPendente({ tipo: 'temporada', season })
+      return
+    }
+
+    await salvarEpisodios(season.episodes.filter((ep) => !vistos[ep.id]))
+  }
+
+  // resolução do modal
+  async function confirmarMarcarTudo() {
+    if (!pendente) return
+    if (pendente.tipo === 'episodio') {
+      const cacheAtual = { ...cache }
+      const anteriores = episodiosAnterioresNaoVistos(pendente.ep.season_number, pendente.ep.episode_number, cacheAtual)
+      await salvarEpisodios([...anteriores, pendente.ep])
+    } else {
+      const primeiroNaoVisto = pendente.season.episodes.find((ep) => !vistos[ep.id])
+      if (primeiroNaoVisto) {
+        const cacheAtual = { ...cache }
+        const anteriores = episodiosAnterioresNaoVistos(pendente.season.season_number, primeiroNaoVisto.episode_number, cacheAtual)
+        await salvarEpisodios([...anteriores, ...pendente.season.episodes.filter((ep) => !vistos[ep.id])])
+      }
+    }
+    setPendente(null)
+  }
+
+  async function confirmarApenasEste() {
+    if (!pendente || !profileId) return
+    if (pendente.tipo === 'episodio') {
+      setSalvandoEp(pendente.ep.id)
+      setVistos((v) => ({ ...v, [pendente.ep.id]: true }))
+      try {
+        await supabase.from('series_episode_history').upsert(
+          { user_id: profileId, tmdb_id: serieId, season_number: pendente.ep.season_number, episode_number: pendente.ep.episode_number, episode_tmdb_id: pendente.ep.id },
+          { onConflict: 'user_id,episode_tmdb_id' }
+        )
+      } catch {
+        setVistos((v) => ({ ...v, [pendente.ep.id]: false }))
+      } finally {
+        setSalvandoEp(null)
+      }
+    } else {
+      await salvarEpisodios(pendente.season.episodes.filter((ep) => !vistos[ep.id]))
+    }
+    setPendente(null)
   }
 
   useEffect(() => {
@@ -348,53 +541,76 @@ function AbaEpisodios({ serieId, temporadas }: {
 
   return (
     <div className="px-4 pt-4 space-y-3">
+      {/* modal de ordem cronológica */}
+      {pendente && (
+        <ModalOrdemCronologica
+          qtdAnteriores={qtdAnteriores}
+          onMarcarTudo={confirmarMarcarTudo}
+          onApenasEste={confirmarApenasEste}
+          onFechar={() => setPendente(null)}
+        />
+      )}
       {temporadas.map((t) => {
         const isOpen = aberta === t.season_number
         const season = cache[t.season_number]
         const isLoading = loadingT === t.season_number
         const vistosCount = season
-          ? season.episodes.filter((ep) => vistos[`${t.season_number}-${ep.episode_number}`]).length
+          ? season.episodes.filter((ep) => !!vistos[ep.id]).length
           : 0
-        const allWatched = season && vistosCount === season.episodes.length
+        const allWatched = season && season.episodes.length > 0 && vistosCount === season.episodes.length
 
         return (
           <div key={t.season_number} className="overflow-hidden rounded-2xl border border-[#2a2a38] bg-[#1c1c24]">
 
             {/* Header da temporada */}
-            <button
-              onClick={() => toggle(t.season_number)}
-              className="flex w-full items-center justify-between px-4 py-4"
-              aria-expanded={isOpen}
-            >
-              <div className="text-left">
-                <p className="text-sm font-semibold text-[#f1f1f3]">{t.name}</p>
-                <p className="mt-0.5 text-xs text-[#5a5a72]">
-                  {vistosCount}/{t.episode_count} episódios assistidos
-                </p>
-              </div>
-              <div className="flex items-center gap-2.5">
+            <div className="flex items-center px-4 py-4 gap-3">
+              {/* checkzinho da temporada inteira */}
+              {season ? (
+                <button
+                  onClick={() => marcarTemporadaInteira(season)}
+                  aria-label={allWatched ? 'Desmarcar temporada' : 'Marcar temporada como assistida'}
+                  className={[
+                    'flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 transition-all duration-200',
+                    allWatched
+                      ? 'border-green-500 bg-green-500 scale-110'
+                      : 'border-[#2a2a38] hover:border-green-500/50',
+                  ].join(' ')}
+                >
+                  {allWatched && <Check size={12} className="text-white" aria-hidden="true" />}
+                </button>
+              ) : (
+                <div className="h-6 w-6 shrink-0 rounded-full border-2 border-[#2a2a38]" />
+              )}
 
-
-                {allWatched && (
-                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#6366f1]">
-                    <Check size={11} className="text-white" aria-hidden="true" />
-                  </span>
-                )}
-                {isLoading && <Loader2 size={14} className="animate-spin text-[#5a5a72]" />}
-                <ChevronDown
-                  size={18}
-                  className={['text-[#5a5a72] transition-transform duration-200', isOpen ? 'rotate-180' : ''].join(' ')}
-                  aria-hidden="true"
-                />
-              </div>
-            </button>
+              {/* título e contagem — clicável para abrir/fechar */}
+              <button
+                onClick={() => toggle(t.season_number)}
+                className="flex flex-1 items-center justify-between text-left"
+                aria-expanded={isOpen}
+              >
+                <div>
+                  <p className="text-sm font-semibold text-[#f1f1f3]">{t.name}</p>
+                  <p className="mt-0.5 text-xs text-[#5a5a72]">
+                    {vistosCount}/{t.episode_count} episódios assistidos
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 ml-2">
+                  {isLoading && <Loader2 size={14} className="animate-spin text-[#5a5a72]" />}
+                  <ChevronDown
+                    size={18}
+                    className={['text-[#5a5a72] transition-transform duration-200', isOpen ? 'rotate-180' : ''].join(' ')}
+                    aria-hidden="true"
+                  />
+                </div>
+              </button>
+            </div>
 
             {/* barrinha de progresso  simples*/}
             {season && season.episodes.length > 0 && (
               <div className="px-4 pb-3">
                 <div className="h-1 w-full overflow-hidden rounded-full bg-[#2a2a38]">
                   <div
-                    className="h-full rounded-full bg-[#6366f1] transition-all duration-300"
+                    className="h-full rounded-full bg-green-500 transition-all duration-300"
                     style={{ width: `${(vistosCount / season.episodes.length) * 100}%` }}
                   />
                 </div>
@@ -404,20 +620,18 @@ function AbaEpisodios({ serieId, temporadas }: {
             {/* Lista de episódios */}
             {isOpen && season && (
               <div className="border-t border-[#2a2a38]">
-                {season.episodes.map((ep) => {
-                  const key = `${t.season_number}-${ep.episode_number}`
-                  return (
-                    <EpisodeRow
-                      key={ep.id}
-                      ep={ep}
-                      visto={!!vistos[key]}
-                      onToggleVisto={() => toggleVisto(key)}
-                    />
-                  )
-                })}
+                {season.episodes.map((ep) => (
+                  <EpisodeRow
+                    key={ep.id}
+                    ep={ep}
+                    visto={!!vistos[ep.id]}
+                    salvando={salvandoEp === ep.id}
+                    onToggleVisto={() => toggleEpisodio(ep)}
+                    serieId={serieId}
+                  />
+                ))}
               </div>
             )}
-
 
             {isOpen && isLoading && (
               <div className="border-t border-[#2a2a38] flex justify-center py-8">
@@ -433,26 +647,36 @@ function AbaEpisodios({ serieId, temporadas }: {
 
 // linha de episódio
 
-function EpisodeRow({ ep, visto, onToggleVisto }: {
+function EpisodeRow({ ep, visto, onToggleVisto, serieId, salvando }: {
   ep: TMDBEpisode
   visto: boolean
   onToggleVisto: () => void
+  serieId: number
+  salvando?: boolean
 }) {
+  const navigate = useNavigate()
   const thumb = tmdbImage(ep.still_path, 'w185')
 
   return (
     <div className="flex items-center gap-3 border-b border-[#2a2a38] px-3 py-3 last:border-0">
       <button
         onClick={onToggleVisto}
+        disabled={salvando}
         aria-label={visto ? 'Marcar como não visto' : 'Marcar como visto'}
         className={[
-          'flex h-6 w-6 shrink-0 items-center justify-center rounded-full border transition-colors',
+          'flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 transition-all duration-200',
           visto
-            ? 'border-[#6366f1] bg-[#6366f1] text-white'
-            : 'border-[#2a2a38] text-transparent hover:border-[#6366f1]/50',
+            ? 'border-green-500 bg-green-500 scale-110 shadow-sm shadow-green-500/30'
+            : 'border-[#2a2a38] hover:border-green-500/50',
+          salvando ? 'opacity-50' : '',
         ].join(' ')}
       >
-        <Check size={12} aria-hidden="true" />
+        {salvando
+          ? <Loader2 size={11} className="animate-spin text-[#5a5a72]" aria-hidden="true" />
+          : visto
+            ? <Check size={13} className="text-white" aria-hidden="true" />
+            : null
+        }
       </button>
 
       <div className="h-[3.75rem] w-[6.5rem] shrink-0 overflow-hidden rounded-lg bg-[#16161c]">
@@ -471,7 +695,13 @@ function EpisodeRow({ ep, visto, onToggleVisto }: {
         )}
       </div>
 
-      <ChevronRight size={15} className="shrink-0 text-[#2a2a38]" aria-hidden="true" />
+      <button
+        onClick={() => navigate(`/series/${serieId}/temporadas/${ep.season_number}/episodios/${ep.episode_number}`)}
+        aria-label="Ver detalhes do episódio"
+        className="shrink-0 text-[#2a2a38] transition-colors hover:text-[#6366f1]"
+      >
+        <ChevronRight size={15} aria-hidden="true" />
+      </button>
     </div>
   )
 }

@@ -209,6 +209,16 @@ export const getDetalhesSerie = (id: number) =>
 export const getTemporadaSerie = (serieId: number, numero: number) =>
   api.get<TMDBSeason>(`/series/${serieId}/temporadas/${numero}`)
 
+export interface TMDBEpisodeDetails extends TMDBEpisode {
+  credits: {
+    cast: TMDBCastMember[]
+    crew: TMDBCrewMember[]
+  }
+}
+
+export const getDetalhesEpisodio = (serieId: number, temporada: number, episodio: number) =>
+  api.get<TMDBEpisodeDetails>(`/series/${serieId}/temporadas/${temporada}/episodios/${episodio}`)
+
 // Imagens disponíveis no TMDB 
 
 export interface TMDBImage {
