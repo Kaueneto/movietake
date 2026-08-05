@@ -34,6 +34,7 @@ export function DetalhesSerie() {
   const [error, setError] = useState<string | null>(null)
   const [abaAtiva, setAbaAtiva] = useState<'sobre' | 'episodios'>('sobre')
   const [seguindo, setSeguindo] = useState(false)
+  const [pausado, setPausado] = useState(false)
   const [loadingSeguindo, setLoadingSeguindo] = useState(false)
 
   const [customPoster, setCustomPoster] = useState<string | null>(null)
@@ -93,7 +94,10 @@ export function DetalhesSerie() {
       .eq('tmdb_id', Number(id))
       .maybeSingle()
       .then(({ data }) => {
-        if (data) setSeguindo(true)
+        if (data) {
+          setSeguindo(true)
+          setPausado(data.status === 'paused')
+        }
       })
   }, [id, profileId])
 
@@ -101,31 +105,32 @@ export function DetalhesSerie() {
     if (!profileId || !id || loadingSeguindo) return
     setLoadingSeguindo(true)
     try {
-      if (seguindo) {
-        // Remove o progresso apenas se ainda não começou a assistir (plan_to_watch)
-        const { data } = await supabase
-          .from('series_progress')
-          .select('status')
-          .eq('user_id', profileId)
-          .eq('tmdb_id', Number(id))
-          .maybeSingle()
-        if (data?.status === 'plan_to_watch') {
-          await supabase
-            .from('series_progress')
-            .delete()
-            .eq('user_id', profileId)
-            .eq('tmdb_id', Number(id))
-          setSeguindo(false)
-        }
-        // se já está watching/completed não desfaz — apenas ignora o clique
-      } else {
+      if (!seguindo) {
+        // Começou a seguir > watching
         await supabase
           .from('series_progress')
           .upsert(
-            { user_id: profileId, tmdb_id: Number(id), status: 'plan_to_watch' },
+            { user_id: profileId, tmdb_id: Number(id), status: 'watching' },
             { onConflict: 'user_id,tmdb_id' }
           )
         setSeguindo(true)
+        setPausado(false)
+      } else if (!pausado) {
+        // estava seguindo > pausa
+        await supabase
+          .from('series_progress')
+          .update({ status: 'paused' })
+          .eq('user_id', profileId)
+          .eq('tmdb_id', Number(id))
+        setPausado(true)
+      } else {
+        // Estava pausado > retoma
+        await supabase
+          .from('series_progress')
+          .update({ status: 'watching' })
+          .eq('user_id', profileId)
+          .eq('tmdb_id', Number(id))
+        setPausado(false)
       }
     } finally {
       setLoadingSeguindo(false)
@@ -291,8 +296,8 @@ export function DetalhesSerie() {
 
       <div className="bg-[#0f0f13] pb-28">
         {abaAtiva === 'sobre'
-          ? <AbaSobre serie={serie} elenco={elenco} streaming={streaming} seguindo={seguindo} loadingSeguindo={loadingSeguindo} onSeguir={toggleSeguindo} acoes={acoes} />
-          : <AbaEpisodios serieId={Number(id)} temporadas={temporadas} cacheTemporadas={cacheTemporadas} setCacheTemporadas={setCacheTemporadas} episodiosAssistidos={episodiosAssistidos} setEpisodiosAssistidos={setEpisodiosAssistidos} />
+          ? <AbaSobre serie={serie} elenco={elenco} streaming={streaming} seguindo={seguindo} pausado={pausado} loadingSeguindo={loadingSeguindo} onSeguir={toggleSeguindo} acoes={acoes} />
+          : <AbaEpisodios serieId={Number(id)} temporadas={temporadas} cacheTemporadas={cacheTemporadas} setCacheTemporadas={setCacheTemporadas} episodiosAssistidos={episodiosAssistidos} setEpisodiosAssistidos={setEpisodiosAssistidos} onEpisodioMarcado={() => { setSeguindo(true); setPausado(false) }} />
         }
       </div>
     </div>
@@ -301,11 +306,12 @@ export function DetalhesSerie() {
 
 // Aba Sobre
 
-function AbaSobre({ serie, elenco, streaming, seguindo, loadingSeguindo, onSeguir, acoes }: {
+function AbaSobre({ serie, elenco, streaming, seguindo, pausado, loadingSeguindo, onSeguir, acoes }: {
   serie: TMDBSerieDetails
   elenco: TMDBCastMember[]
   streaming: any[]
   seguindo: boolean
+  pausado: boolean
   loadingSeguindo: boolean
   onSeguir: () => void
   acoes: ReturnType<typeof useUserActions>
@@ -317,16 +323,18 @@ function AbaSobre({ serie, elenco, streaming, seguindo, loadingSeguindo, onSegui
         disabled={loadingSeguindo}
         className={[
           'flex items-center gap-2 rounded-full border px-5 py-2 text-sm font-semibold transition-colors disabled:opacity-60',
-          seguindo
+          seguindo && !pausado
             ? 'border-[#6366f1] bg-[#6366f1]/15 text-[#6366f1]'
-            : 'border-[#2a2a38] bg-transparent text-[#f1f1f3] hover:border-[#6366f1]/40',
+            : pausado
+              ? 'border-yellow-500/50 bg-yellow-500/10 text-yellow-400'
+              : 'border-[#2a2a38] bg-transparent text-[#f1f1f3] hover:border-[#6366f1]/40',
         ].join(' ')}
       >
         {loadingSeguindo
           ? <Loader2 size={15} className="animate-spin" aria-hidden="true" />
           : <Bell size={15} aria-hidden="true" />
         }
-        {seguindo ? 'Seguindo' : 'Seguir'}
+        {!seguindo ? 'Seguir' : pausado ? 'Retomar' : 'Seguindo'}
       </button>
 
       <div className="grid grid-cols-3 gap-2">
@@ -408,13 +416,14 @@ function AbaSobre({ serie, elenco, streaming, seguindo, loadingSeguindo, onSegui
 
 // Aba eps
 
-function AbaEpisodios({ serieId, temporadas, cacheTemporadas, setCacheTemporadas, episodiosAssistidos, setEpisodiosAssistidos }: {
+function AbaEpisodios({ serieId, temporadas, cacheTemporadas, setCacheTemporadas, episodiosAssistidos, setEpisodiosAssistidos, onEpisodioMarcado }: {
   serieId: number
   temporadas: Array<{ season_number: number; name: string; episode_count: number }>
   cacheTemporadas: Record<number, TMDBSeason>
   setCacheTemporadas: React.Dispatch<React.SetStateAction<Record<number, TMDBSeason>>>
   episodiosAssistidos: Record<number, boolean>
   setEpisodiosAssistidos: React.Dispatch<React.SetStateAction<Record<number, boolean>>>
+  onEpisodioMarcado: () => void
 }) {
   const { profileId } = useAuth()
   const [aberta, setAberta] = useState<number | null>(temporadas[0]?.season_number ?? null)
@@ -488,6 +497,7 @@ function AbaEpisodios({ serieId, temporadas, cacheTemporadas, setCacheTemporadas
         { user_id: profileId, tmdb_id: serieId, status: 'watching' },
         { onConflict: 'user_id,tmdb_id' }
       )
+    onEpisodioMarcado()
   }
 
   async function toggle(numero: number) {
@@ -554,6 +564,7 @@ function AbaEpisodios({ serieId, temporadas, cacheTemporadas, setCacheTemporadas
           { user_id: profileId, tmdb_id: serieId, status: 'watching' },
           { onConflict: 'user_id,tmdb_id' }
         )
+      onEpisodioMarcado()
     } catch {
       setEpisodiosAssistidos((v) => ({ ...v, [ep.id]: false }))
     } finally {

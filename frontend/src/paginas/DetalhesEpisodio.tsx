@@ -45,15 +45,14 @@ export function DetalhesEpisodio() {
   const [ep, setEp] = useState<TMDBEpisodeDetails | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [abaAtiva, setAbaAtiva] = useState<'sobre' | 'detalhes'>('sobre')
 
-  // estado de ações do usuário
   const [assistido, setAssistido] = useState(false)
   const [avaliacao, setAvaliacao] = useState(0)
   const [sentimento, setSentimento] = useState<string | null>(null)
   const [assistiuCom, setAssistiuCom] = useState<string | null>(null)
   const [favorito, setFavorito] = useState(false)
   const [salvando, setSalvando] = useState(false)
+  const [personagemFav, setPersonagemFav] = useState<number | null>(null)
 
   useEffect(() => {
     if (!serieId || !temporada || !episodio) return
@@ -65,10 +64,8 @@ export function DetalhesEpisodio() {
       .finally(() => setLoading(false))
   }, [serieId, temporada, episodio])
 
-  // carrega estado salvo — só executa quando ep.id estiver disponível
   useEffect(() => {
     if (!profileId || !ep?.id) return
-
     supabase
       .from('series_episode_history')
       .select('id')
@@ -78,8 +75,6 @@ export function DetalhesEpisodio() {
       .then(({ data }) => setAssistido(!!data))
   }, [profileId, ep?.id])
 
-  // guarda o tmdb_id real do episódio (ep.id) separado do número do episódio na URL
-  // O número na URL (ex: 3) é diferente do ID no TMDB (ex: 1234567)
   const episodioTmdbId = ep?.id ?? null
 
   async function toggleAssistido() {
@@ -87,7 +82,6 @@ export function DetalhesEpisodio() {
     setSalvando(true)
     try {
       if (assistido) {
-        // Usa o tmdb_id real do episódio — mesmo valor usado no insert
         await supabase
           .from('series_episode_history')
           .delete()
@@ -134,16 +128,15 @@ export function DetalhesEpisodio() {
   const nota = ep.vote_average ? ep.vote_average.toFixed(1) : null
 
   return (
-    <div className="min-h-screen bg-[#0f0f13] overflow-x-hidden">
+    <div className="min-h-screen bg-[#0f0f13] overflow-x-hidden pb-28">
 
-
+      {/* Imagem do episódio */}
       <div className="relative w-full aspect-video overflow-hidden bg-[#16161c]">
         {still
           ? <img src={still} alt="" aria-hidden="true" className="h-full w-full object-cover object-top" />
           : <div className="h-full w-full bg-[#16161c]" />
         }
         <div className="absolute inset-0 bg-gradient-to-t from-[#0f0f13] via-transparent to-transparent" />
-
         <button
           onClick={() => navigate(-1)}
           aria-label="Voltar"
@@ -154,12 +147,12 @@ export function DetalhesEpisodio() {
         </button>
       </div>
 
-      {/* titulo e metadados */}
-      <div className="px-4 pt-4 pb-2 font-segoe">
+      {/* Título e metadados */}
+      <div className="px-4 pt-4 pb-2">
         <p className="mb-1 text-xs font-semibold text-[#6366f1]">
           S{String(ep.season_number).padStart(2, '0')} · E{String(ep.episode_number).padStart(2, '0')}
         </p>
-        <h1 className="text-xl font-semibold leading-tight text-[#f1f1f3] ">{ep.name}</h1>
+        <h1 className="text-xl font-semibold leading-tight text-[#f1f1f3]">{ep.name}</h1>
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
           {diretor && <span className="text-xs text-[#9898ac]">Dir. {diretor.name}</span>}
           {ep.air_date && (
@@ -183,7 +176,7 @@ export function DetalhesEpisodio() {
         </div>
       </div>
 
-      {/* ações rápidas */}
+      {/* Botões de ação */}
       <div className="grid grid-cols-3 gap-2 px-4 pt-2">
         <BotaoAcao
           icon={salvando ? <Loader2 size={25} className="animate-spin" /> : <Eye size={25} />}
@@ -193,195 +186,126 @@ export function DetalhesEpisodio() {
           onClick={toggleAssistido}
         />
         <BotaoAcao
-          icon={<Star size={25} className={assistido ? 'fill-current' : ''} />}
+          icon={<Star size={25} className={avaliacao > 0 ? 'fill-current' : ''} />}
           label="Avaliar"
+          ativo={avaliacao > 0}
           corAtivo="#16a34a"
         />
         <BotaoAcao
           icon={<Heart size={25} className={favorito ? 'fill-current' : ''} />}
           label="Favorito"
           ativo={favorito}
-          corAtivo="#dc2626"
+          corAtivo="#ef4444"
           onClick={() => setFavorito((v) => !v)}
         />
       </div>
 
-      {/* tabs */}
-      <div className="sticky top-0 z-30 mt-4 bg-[#0f0f13]">
-        <div className="flex border-b border-[#2a2a38]">
-          {(['sobre', 'detalhes'] as const).map((aba) => (
-            <button
-              key={aba}
-              onClick={() => setAbaAtiva(aba)}
-              className={[
-                'flex-1 py-3.5 text-sm font-semibold  tracking-wider transition-colors',
-                abaAtiva === aba
-                  ? 'border-b-2 border-[#6366f1] text-[#f1f1f3]'
-                  : 'text-[#5a5a72]',
-              ].join(' ')}
-            >
-              {aba === 'sobre' ? 'Sobre o Episódio' : 'Seus Detalhes'}
-            </button>
-          ))}
+      {/* Conteúdo */}
+      <div className="mt-5 space-y-6 px-4">
+
+        {/* Sinopse */}
+        {ep.overview && (
+          <Secao title="Sinopse">
+            <p className="text-sm leading-relaxed text-[#9898ac]">{ep.overview}</p>
+          </Secao>
+        )}
+
+        {/* Avaliação com estrelas */}
+        <div className="rounded-2xl border border-[#2a2a38] bg-[#1c1c24] px-4 py-4">
+          <p className="mb-2 text-xs font-semibold tracking-wider text-[#5a5a72]">Sua avaliação</p>
+          <div className="flex gap-1">
+            {[1, 2, 3, 4, 5].map((n) => (
+              <button key={n} onClick={() => setAvaliacao(n === avaliacao ? 0 : n)} aria-label={`${n} estrela${n > 1 ? 's' : ''}`}>
+                <Star
+                  size={28}
+                  className={n <= avaliacao ? 'fill-[#16a34a] text-[#16a34a]' : 'text-[#2a2a38]'}
+                  aria-hidden="true"
+                />
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
 
-      <div className="bg-[#0f0f13] pb-28">
-        {abaAtiva === 'sobre'
-          ? <AbaSobre ep={ep} elenco={elenco} />
-          : <AbaDetalhes
-              avaliacao={avaliacao}
-              setAvaliacao={setAvaliacao}
-              sentimento={sentimento}
-              setSentimento={setSentimento}
-              assistiuCom={assistiuCom}
-              setAssistiuCom={setAssistiuCom}
-              elenco={elenco}
-            />
-        }
-      </div>
-    </div>
-  )
-}
-
-// Aba Sobre o Episódio
-
-function AbaSobre({ ep, elenco }: { ep: TMDBEpisodeDetails; elenco: TMDBCastMember[] }) {
-  return (
-    <div className="mt-5 space-y-6 px-4">
-      {ep.overview && (
-        <Secao title="Sinopse">
-          <p className="text-sm leading-relaxed text-[#9898ac]">{ep.overview}</p>
-        </Secao>
-      )}
-
-      {elenco.length > 0 && (
-        <Secao title="Elenco">
-          <div className="flex gap-2.5 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
-            {elenco.map((ator) => <CartaoAtor key={ator.id} ator={ator} />)}
+        {/* Como se sentiu */}
+        <Secao title="Como você se sentiu">
+          <div className="grid grid-cols-4 gap-2">
+            {SENTIMENTOS.map((s) => (
+              <button
+                key={s.label}
+                onClick={() => setSentimento(sentimento === s.label ? null : s.label)}
+                aria-pressed={sentimento === s.label}
+                className={[
+                  'flex flex-col items-center gap-1.5 rounded-xl border py-3 transition-colors',
+                  sentimento === s.label
+                    ? 'border-[#6366f1]/50 bg-[#6366f1]/10'
+                    : 'border-[#2a2a38] bg-[#1c1c24]',
+                ].join(' ')}
+              >
+                <span className="text-xl leading-none" aria-hidden="true">{s.emoji}</span>
+                <span className="text-center text-[9px] leading-tight text-[#9898ac] line-clamp-2 px-1">{s.label}</span>
+              </button>
+            ))}
           </div>
         </Secao>
-      )}
-    </div>
-  )
-}
 
-// Aba Seus Detalhes
-
-function AbaDetalhes({
-  avaliacao, setAvaliacao,
-  sentimento, setSentimento,
-  assistiuCom, setAssistiuCom,
-  elenco,
-}: {
-  avaliacao: number
-  setAvaliacao: (n: number) => void
-  sentimento: string | null
-  setSentimento: (s: string | null) => void
-  assistiuCom: string | null
-  setAssistiuCom: (s: string | null) => void
-  elenco: TMDBCastMember[]
-}) {
-  const [personagemFav, setPersonagemFav] = useState<number | null>(null)
-
-  return (
-    <div className="mt-5 space-y-6 px-4">
-      {/* Avaliação */}
-      <div className="rounded-2xl border border-[#2a2a38] bg-[#1c1c24] px-4 py-4">
-        <p className="mb-2 text-xs font-semibold  tracking-wider text-[#5a5a72]">Sua avaliação</p>
-        <div className="flex gap-1">
-          {[1, 2, 3, 4, 5].map((n) => (
-            <button key={n} onClick={() => setAvaliacao(n === avaliacao ? 0 : n)} aria-label={`${n} estrela${n > 1 ? 's' : ''}`}>
-              <Star
-                size={28}
-                className={n <= avaliacao ? 'fill-[#6366f1] text-[#6366f1]' : 'text-[#2a2a38]'}
-                aria-hidden="true"
-              />
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Como se sentiu */}
-      <Secao title="Como você se sentiu">
-        <div className="grid grid-cols-4 gap-2">
-          {SENTIMENTOS.map((s) => (
-            <button
-              key={s.label}
-              onClick={() => setSentimento(sentimento === s.label ? null : s.label)}
-              aria-pressed={sentimento === s.label}
-              className={[
-                'flex flex-col items-center gap-1.5 rounded-xl border py-3 transition-colors',
-                sentimento === s.label
-                  ? 'border-[#6366f1]/50 bg-[#6366f1]/10'
-                  : 'border-[#2a2a38] bg-[#1c1c24]',
-              ].join(' ')}
-            >
-              <span className="text-xl leading-none" aria-hidden="true">{s.emoji}</span>
-              <span className="text-center text-[9px] leading-tight text-[#9898ac] line-clamp-2 px-1">{s.label}</span>
-            </button>
-          ))}
-        </div>
-      </Secao>
-
-      {/* Assistiu com */}
-      <Secao title="Assistiu com">
-        <div className="flex flex-wrap gap-2">
-          {ASSISTIU_COM.map((op) => (
-            <button
-              key={op.id}
-              onClick={() => setAssistiuCom(assistiuCom === op.id ? null : op.id)}
-              aria-pressed={assistiuCom === op.id}
-              className={[
-                'rounded-full border px-4 py-2 text-sm font-medium transition-colors',
-                assistiuCom === op.id
-                  ? 'border-[#6366f1] bg-[#6366f1]/15 text-[#6366f1]'
-                  : 'border-[#2a2a38] bg-[#1c1c24] text-[#9898ac] hover:border-[#6366f1]/30',
-              ].join(' ')}
-            >
-              {op.label}
-            </button>
-          ))}
-        </div>
-      </Secao>
-
-      {/* Personagem favorito */}
-      {elenco.length > 0 && (
-        <Secao title="Personagem favorito">
-          <div className="flex gap-2.5 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
-            {elenco.map((ator) => {
-              const foto = tmdbImage(ator.profile_path, 'w185')
-              const selecionado = personagemFav === ator.id
-              return (
-                <button
-                  key={ator.id}
-                  onClick={() => setPersonagemFav(selecionado ? null : ator.id)}
-                  aria-pressed={selecionado}
-                  className="flex w-[4.5rem] shrink-0 flex-col items-center gap-1.5 transition-opacity duration-200"
-                  style={{ opacity: personagemFav === null || selecionado ? 1 : 0.3 }}
-                >
-                  <div className={[
-                    'relative aspect-square w-full overflow-hidden rounded-xl ring-2 transition-all duration-200',
-                    selecionado ? 'ring-[#6366f1]' : 'ring-transparent',
-                  ].join(' ')}>
-                    {foto
-                      ? <img src={foto} alt={ator.name} loading="lazy" className="h-full w-full object-cover object-top" />
-                      : <div className="flex h-full w-full items-center justify-center bg-[#1c1c24] text-xl font-bold text-[#5a5a72]">{ator.name[0]}</div>
-                    }
-                  </div>
-                  <p className="text-center text-[10px] font-semibold leading-tight text-[#f1f1f3] line-clamp-2">{ator.character}</p>
-                  <p className="text-center text-[9px] leading-tight text-[#5a5a72] line-clamp-1">{ator.name}</p>
-                </button>
-              )
-            })}
+        {/* Assistiu com */}
+        <Secao title="Assistiu com">
+          <div className="flex flex-wrap gap-2">
+            {ASSISTIU_COM.map((op) => (
+              <button
+                key={op.id}
+                onClick={() => setAssistiuCom(assistiuCom === op.id ? null : op.id)}
+                aria-pressed={assistiuCom === op.id}
+                className={[
+                  'rounded-full border px-4 py-2 text-sm font-medium transition-colors',
+                  assistiuCom === op.id
+                    ? 'border-[#6366f1] bg-[#6366f1]/15 text-[#6366f1]'
+                    : 'border-[#2a2a38] bg-[#1c1c24] text-[#9898ac]',
+                ].join(' ')}
+              >
+                {op.label}
+              </button>
+            ))}
           </div>
         </Secao>
-      )}
+
+        {/* Personagem favorito — inclui o elenco */}
+        {elenco.length > 0 && (
+          <Secao title="Personagem favorito">
+            <div className="flex gap-2.5 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
+              {elenco.map((ator) => {
+                const foto = tmdbImage(ator.profile_path, 'w185')
+                const selecionado = personagemFav === ator.id
+                return (
+                  <button
+                    key={ator.id}
+                    onClick={() => setPersonagemFav(selecionado ? null : ator.id)}
+                    aria-pressed={selecionado}
+                    className="flex w-[4.5rem] shrink-0 flex-col items-center gap-1.5 transition-opacity duration-200"
+                    style={{ opacity: personagemFav === null || selecionado ? 1 : 0.3 }}
+                  >
+                    <div className={[
+                      'relative aspect-square w-full overflow-hidden rounded-xl ring-2 transition-all duration-200',
+                      selecionado ? 'ring-[#6366f1]' : 'ring-transparent',
+                    ].join(' ')}>
+                      {foto
+                        ? <img src={foto} alt={ator.name} loading="lazy" className="h-full w-full object-cover object-top" />
+                        : <div className="flex h-full w-full items-center justify-center bg-[#1c1c24] text-xl font-bold text-[#5a5a72]">{ator.name[0]}</div>
+                      }
+                    </div>
+                    <p className="text-center text-[10px] font-semibold leading-tight text-[#f1f1f3] line-clamp-2">{ator.character}</p>
+                    <p className="text-center text-[9px] leading-tight text-[#5a5a72] line-clamp-1">{ator.name}</p>
+                  </button>
+                )
+              })}
+            </div>
+          </Secao>
+        )}
+
+      </div>
     </div>
   )
 }
-
-// Componentes compartilhados
 
 function BotaoAcao({ icon, label, ativo = false, onClick, corAtivo }: {
   icon: React.ReactNode
@@ -407,22 +331,6 @@ function Secao({ title, children }: { title: string; children: React.ReactNode }
     <div>
       <h2 className="mb-3 text-sm font-semibold text-[#f1f1f3]">{title}</h2>
       {children}
-    </div>
-  )
-}
-
-function CartaoAtor({ ator }: { ator: TMDBCastMember }) {
-  const foto = tmdbImage(ator.profile_path, 'w185')
-  return (
-    <div className="flex w-[4.5rem] shrink-0 flex-col gap-1.5">
-      <div className="aspect-square w-full overflow-hidden rounded-xl bg-[#1c1c24] ring-1 ring-[#2a2a38]">
-        {foto
-          ? <img src={foto} alt={ator.name} loading="lazy" className="h-full w-full object-cover object-top" />
-          : <div className="flex h-full w-full items-center justify-center text-xl font-bold text-[#5a5a72]">{ator.name[0]}</div>
-        }
-      </div>
-      <p className="text-center text-[10px] font-medium leading-tight text-[#f1f1f3] line-clamp-2">{ator.name}</p>
-      <p className="text-center text-[9px] leading-tight text-[#5a5a72] line-clamp-1">{ator.character}</p>
     </div>
   )
 }

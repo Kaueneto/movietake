@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Loader2, Tv2, Check, ChevronRight } from 'lucide-react'
+import { Loader2, Tv2, Check, ChevronRight, ChevronDown } from 'lucide-react'
 import { useContinuarAssistindo, type SerieEmProgresso } from '../hooks/useContinuarAssistindo'
 import { tmdbImage } from '../lib/api'
 import { supabase } from '../lib/supabase'
@@ -9,9 +9,11 @@ import { useAuth } from '../lib/AuthContext'
 type Aba = 'assistindo' | 'estreias'
 
 export function Assistindo() {
-  const { emAndamento, concluidas, loading } = useContinuarAssistindo()
+  const { emAndamento, naoIniciadas, concluidas, loading } = useContinuarAssistindo()
   const { profileId } = useAuth()
   const [aba, setAba] = useState<Aba>('assistindo')
+
+  const temAlguma = emAndamento.length > 0 || naoIniciadas.length > 0 || concluidas.length > 0
 
   if (loading) {
     return (
@@ -23,29 +25,17 @@ export function Assistindo() {
 
   return (
     <div className="min-h-screen bg-[#0f0f13]">
-      {/* Header fixo com abas */}
       <div className="sticky top-0 z-30 bg-[#0f0f13] px-4 pt-5">
-        <h1 className="mb-4 text-xl font-bold text-[#f1f1f3]">Assistindo</h1>
         <div className="flex border-b border-[#2a2a38]">
           <button
             onClick={() => setAba('assistindo')}
-            className={[
-              'flex-1 pb-3 text-sm font-semibold transition-colors',
-              aba === 'assistindo'
-                ? 'border-b-2 border-[#6366f1] text-[#f1f1f3]'
-                : 'text-[#5a5a72]',
-            ].join(' ')}
+            className={['flex-1 pb-3 text-sm font-semibold transition-colors', aba === 'assistindo' ? 'border-b-2 border-[#6366f1] text-[#f1f1f3]' : 'text-[#5a5a72]'].join(' ')}
           >
             Continuar Assistindo
           </button>
           <button
             onClick={() => setAba('estreias')}
-            className={[
-              'flex-1 pb-3 text-sm font-semibold transition-colors',
-              aba === 'estreias'
-                ? 'border-b-2 border-[#6366f1] text-[#f1f1f3]'
-                : 'text-[#5a5a72]',
-            ].join(' ')}
+            className={['flex-1 pb-3 text-sm font-semibold transition-colors', aba === 'estreias' ? 'border-b-2 border-[#6366f1] text-[#f1f1f3]' : 'text-[#5a5a72]'].join(' ')}
           >
             Estreia em Breve
           </button>
@@ -55,38 +45,104 @@ export function Assistindo() {
       <div className="px-4 pb-28 pt-4">
         {aba === 'assistindo' && (
           <>
-            {emAndamento.length === 0 && concluidas.length === 0 ? (
-              <EstadoVazio mensagem="Nenhuma série em andamento" />
+            {!temAlguma ? (
+              <EstadoVazio mensagem="Nenhuma série sendo acompanhada" detalhe='Abra uma série e aperte "Seguir" para começar.' />
             ) : (
               <div className="space-y-3">
-                {emAndamento.map((serie) => (
-                  <CardSerie key={serie.tmdbId} serie={serie} profileId={profileId} />
-                ))}
 
+                {/* Em andamento — recolhível */}
+                {emAndamento.length > 0 && (
+                  <SecaoRecolhivel
+                    label="Em andamento"
+                    count={emAndamento.length}
+                    cor="text-[#6366f1] bg-[#6366f1]/10"
+                    defaultAberta
+                  >
+                    {emAndamento.map((serie) => (
+                      <CardSerie key={serie.tmdbId} serie={serie} profileId={profileId} />
+                    ))}
+                  </SecaoRecolhivel>
+                )}
+
+                {/* Não iniciadas — recolhível */}
+                {naoIniciadas.length > 0 && (
+                  <SecaoRecolhivel
+                    label="Não iniciadas"
+                    count={naoIniciadas.length}
+                    cor="text-[#9898ac] bg-[#2a2a38]"
+                    defaultAberta
+                  >
+                    {naoIniciadas.map((serie) => (
+                      <CardSerie key={serie.tmdbId} serie={serie} profileId={profileId} />
+                    ))}
+                  </SecaoRecolhivel>
+                )}
+
+                {/* Concluídas */}
                 {concluidas.length > 0 && (
-                  <>
-                    <div className="flex items-center gap-3 pt-2">
-                      <div className="h-px flex-1 bg-[#2a2a38]" />
-                      <span className="text-[11px] text-[#5a5a72]">Concluídas</span>
-                      <div className="h-px flex-1 bg-[#2a2a38]" />
-                    </div>
+                  <SecaoRecolhivel
+                    label="Concluídas"
+                    count={concluidas.length}
+                    cor="text-green-400 bg-green-500/10"
+                    defaultAberta={false}
+                  >
                     {concluidas.map((serie) => (
                       <CardSerie key={serie.tmdbId} serie={serie} profileId={profileId} />
                     ))}
-                  </>
+                  </SecaoRecolhivel>
                 )}
+
               </div>
             )}
           </>
         )}
 
         {aba === 'estreias' && (
-          <EstadoVazio
-            mensagem="Em breve"
-            detalhe="Os próximos episódios das suas séries aparecerão aqui."
-          />
+          <EstadoVazio mensagem="Em breve" detalhe="Os próximos episódios das suas séries aparecerão aqui." />
         )}
       </div>
+    </div>
+  )
+}
+
+function Separador({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-3 py-1">
+      <div className="h-px flex-1 bg-[#2a2a38]" />
+      <span className="text-[11px] font-medium text-[#5a5a72]">{label}</span>
+      <div className="h-px flex-1 bg-[#2a2a38]" />
+    </div>
+  )
+}
+
+function SecaoRecolhivel({ label, count, cor, defaultAberta = true, children }: {
+  label: string
+  count: number
+  cor: string
+  defaultAberta?: boolean
+  children: React.ReactNode
+}) {
+  const [aberta, setAberta] = useState(defaultAberta)
+  return (
+    <div className="space-y-3">
+      <div className="flex justify-center">
+        <button
+          onClick={() => setAberta((v) => !v)}
+          className="flex items-center gap-1.5"
+          aria-expanded={aberta}
+        >
+          <span className={['inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold', cor].join(' ')}>
+            {label}
+            <span className="rounded-full bg-black/20 px-1.5 py-0.5 text-[10px] font-bold leading-none">{count}</span>
+          </span>
+          <ChevronDown
+            size={14}
+            className={['text-[#5a5a72] transition-transform duration-200', aberta ? 'rotate-180' : ''].join(' ')}
+            aria-hidden="true"
+          />
+        </button>
+      </div>
+      {aberta && <div className="space-y-3">{children}</div>}
     </div>
   )
 }
@@ -110,7 +166,6 @@ function CardSerie({ serie, profileId }: { serie: SerieEmProgresso; profileId: n
 
   async function marcarEAssistir() {
     if (!profileId || !serie.proximo || confirmado) return
-
     setConfirmado(true)
 
     // Grava em background — não bloqueia a navegação
@@ -138,10 +193,7 @@ function CardSerie({ serie, profileId }: { serie: SerieEmProgresso; profileId: n
     )
 
     await new Promise((res) => setTimeout(res, 500))
-
-    navigate(
-      `/series/${serie.tmdbId}/temporadas/${serie.proximo.season_number}/episodios/${serie.proximo.episode_number}`
-    )
+    navigate(`/series/${serie.tmdbId}/temporadas/${serie.proximo.season_number}/episodios/${serie.proximo.episode_number}`)
   }
 
   return (
@@ -165,7 +217,7 @@ function CardSerie({ serie, profileId }: { serie: SerieEmProgresso; profileId: n
 
       {/* Conteúdo */}
       <div className="min-w-0 flex-1">
-        {/* Nome da série — vai para detalhes da série */}
+        {/* Nome da série — vai para detalhes */}
         <button
           onClick={() => navigate(`/series/${serie.tmdbId}`)}
           className="mb-1 flex items-center gap-1"
@@ -175,11 +227,11 @@ function CardSerie({ serie, profileId }: { serie: SerieEmProgresso; profileId: n
           <ChevronRight size={12} className="text-[#5a5a72]" aria-hidden="true" />
         </button>
 
-        {/* Episódio — vai para o episódio */}
+        {/* Episódio — vai direto para o episódio */}
         <button
           onClick={irParaEpisodio}
           className="w-full text-left"
-          aria-label={`Assistir próximo episódio de ${serie.nome}`}
+          aria-label={serie.concluida ? `Ver ${serie.nome}` : `Assistir próximo episódio de ${serie.nome}`}
         >
           {serie.concluida ? (
             <p className="text-sm font-bold text-green-400">Concluída</p>
@@ -196,7 +248,7 @@ function CardSerie({ serie, profileId }: { serie: SerieEmProgresso; profileId: n
         </button>
       </div>
 
-      {/* Botão check circular */}
+      {/* Botão check — só para séries não concluídas */}
       {!serie.concluida && (
         <button
           onClick={marcarEAssistir}

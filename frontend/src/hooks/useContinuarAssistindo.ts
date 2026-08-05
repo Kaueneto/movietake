@@ -157,8 +157,9 @@ export function useContinuarAssistindo() {
     }
   }
 
-  const emAndamento = series.filter((s) => !s.concluida)
+  const emAndamento = series.filter((s) => !s.concluida && s.ultimoAssistido !== null)
+  const naoIniciadas = series.filter((s) => !s.concluida && s.ultimoAssistido === null)
   const concluidas = series.filter((s) => s.concluida)
 
-  return { series, emAndamento, concluidas, loading, recarregar: carregar }
+  return { series, emAndamento, naoIniciadas, concluidas, loading, recarregar: carregar }
 }
