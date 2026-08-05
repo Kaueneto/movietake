@@ -8,7 +8,6 @@ import {
   getDetalhesEpisodio,
   tmdbImage,
   type TMDBEpisodeDetails,
-  type TMDBCastMember,
 } from '../lib/api'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/AuthContext'

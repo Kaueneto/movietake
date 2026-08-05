@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Film, Tv, Loader2, BookmarkX, Eye, Bookmark, ChevronDown } from 'lucide-react'
+import { ArrowLeft, Film, Tv, Loader2, BookmarkX, Eye, ChevronDown } from 'lucide-react'
 import { useWatchlist, type WatchlistItem } from '../hooks/useWatchlist'
 import { tmdbImage } from '../lib/api'
 import { supabase } from '../lib/supabase'

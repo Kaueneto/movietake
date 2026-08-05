@@ -105,16 +105,6 @@ export function Assistindo() {
   )
 }
 
-function Separador({ label }: { label: string }) {
-  return (
-    <div className="flex items-center gap-3 py-1">
-      <div className="h-px flex-1 bg-[#2a2a38]" />
-      <span className="text-[11px] font-medium text-[#5a5a72]">{label}</span>
-      <div className="h-px flex-1 bg-[#2a2a38]" />
-    </div>
-  )
-}
-
 function SecaoRecolhivel({ label, count, cor, defaultAberta = true, children }: {
   label: string
   count: number
