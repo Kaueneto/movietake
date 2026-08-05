@@ -226,17 +226,27 @@ export function DetalhesFilme() {
 
       <div className="grid grid-cols-4 gap-2 px-4 pt-4">
         <ActionBtn
-          icon={acoes.loadingAssistido ? <Loader2 size={20} className="animate-spin" /> : <Eye size={20} />}
+          icon={acoes.loadingAssistido ? <Loader2 size={25} className="animate-spin" /> : <Eye size={25} />}
           label="Já assisti"
           ativo={acoes.assistido}
+          corAtivo="#f97316"
           onClick={acoes.toggleAssistido}
         />
-        <ActionBtn icon={<Star size={20} />} label="Avaliar" />
-        <ActionBtn icon={<ListPlus size={20} />} label="+ Listas" />
         <ActionBtn
-          icon={acoes.loadingWatchlist ? <Loader2 size={20} className="animate-spin" /> : <Bookmark size={20} />}
+          icon={<Star size={25} className={acoes.assistido ? 'fill-current' : ''} />}
+          label="Avaliar"
+          corAtivo="#16a34a"
+        />
+        <ActionBtn
+          icon={<ListPlus size={25} />}
+          label="Listas"
+          corAtivo="#a855f7"
+        />
+        <ActionBtn
+          icon={acoes.loadingWatchlist ? (<Loader2 size={25} className="animate-spin" />) : (<Bookmark size={25} className={acoes.naWatchlist ? 'fill-current' : ''} />)}
           label="Quero assistir"
           ativo={acoes.naWatchlist}
+          corAtivo="#eab308"
           onClick={acoes.toggleWatchlist}
         />
       </div>
@@ -250,7 +260,7 @@ export function DetalhesFilme() {
               className={[
                 'flex-1 py-3.5 text-sm font-semibold uppercase tracking-wider transition-colors',
                 abaAtiva === aba
-                  ? 'border-b-2 border-[#6366f1] text-[#f1f1f3]'
+                  ? 'border-b-2 border-[#4000f0] text-[#f1f1f3]'
                   : 'text-[#5a5a72]',
               ].join(' ')}
             >
@@ -466,21 +476,18 @@ function AbaDetalhesUsuario({ elenco }: { elenco: TMDBCastMember[] }) {
 
 // Componentes compartilhados
 
-function ActionBtn({ icon, label, ativo = false, onClick }: {
+function ActionBtn({ icon, label, ativo = false, onClick, corAtivo }: {
   icon: React.ReactNode
   label: string
   ativo?: boolean
   onClick?: () => void
+  corAtivo?: string
 }) {
   return (
     <button
       onClick={onClick}
-      className={[
-        'flex flex-col items-center gap-1.5 rounded-xl border py-3.5 transition-colors active:scale-95',
-        ativo
-          ? 'border-[#6366f1]/50 bg-[#6366f1]/15 text-[#6366f1]'
-          : 'border-[#2a2a38] bg-[#1c1c24] text-[#9898ac] hover:border-[#6366f1]/40 hover:text-[#f1f1f3]',
-      ].join(' ')}
+      className="flex flex-col items-center gap-1.5 py-3.5 transition-colors active:scale-95"
+      style={{ color: ativo && corAtivo ? corAtivo : '#9898ac' }}
     >
       {icon}
       <span className="text-[10px] font-medium leading-none">{label}</span>

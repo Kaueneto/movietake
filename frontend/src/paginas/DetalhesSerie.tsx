@@ -27,6 +27,7 @@ const HERO_HEIGHT = 420
 export function DetalhesSerie() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const { profileId } = useAuth()
 
   const [serie, setSerie] = useState<TMDBSerieDetails | null>(null)
   const [loading, setLoading] = useState(true)
@@ -37,19 +38,52 @@ export function DetalhesSerie() {
   const [customPoster, setCustomPoster] = useState<string | null>(null)
   const [customBackdrop, setCustomBackdrop] = useState<string | null>(null)
   const [modalImagem, setModalImagem] = useState<'poster' | 'backdrop' | null>(null)
+  const [cacheTemporadas, setCacheTemporadas] = useState<Record<number, TMDBSeason>>({})
+  const [episodiosAssistidos, setEpisodiosAssistidos] = useState<Record<number, boolean>>({})
 
   const heroRef = useRef<HTMLDivElement>(null)
   const backdropImgRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (!id) return
+    if (!id || !profileId) return
     setLoading(true)
     setError(null)
     getDetalhesSerie(Number(id))
-      .then((res) => setSerie(res.data))
+      .then((res) => {
+        setSerie(res.data)
+        // Carrega todas as temporadas assim que a série é recebida
+        const temporadasDisponiveis = res.data.seasons.filter((s) => s.season_number > 0)
+        const carregarTemporadas = async () => {
+          try {
+            const resultados = await Promise.all(
+              temporadasDisponiveis.map((t) => getTemporadaSerie(Number(id), t.season_number).then((r) => r.data))
+            )
+            setCacheTemporadas((c) => {
+              const next = { ...c }
+              resultados.forEach((s) => { next[s.season_number] = s })
+              return next
+            })
+          } catch {
+            // silencioso
+          }
+        }
+        carregarTemporadas()
+      })
       .catch(() => setError('Não foi possível carregar os detalhes.'))
       .finally(() => setLoading(false))
-  }, [id])
+
+    // Carrega episódios assistidos
+    supabase
+      .from('series_episode_history')
+      .select('episode_tmdb_id')
+      .eq('user_id', profileId)
+      .eq('tmdb_id', Number(id))
+      .then(({ data }) => {
+        const mapa: Record<number, boolean> = {}
+        for (const row of data ?? []) mapa[row.episode_tmdb_id] = true
+        setEpisodiosAssistidos(mapa)
+      })
+  }, [id, profileId])
 
   // carrega preferência salva ao abrir a página
   useEffect(() => {
@@ -211,7 +245,7 @@ export function DetalhesSerie() {
       <div className="bg-[#0f0f13] pb-28">
         {abaAtiva === 'sobre'
           ? <AbaSobre serie={serie} elenco={elenco} streaming={streaming} seguindo={seguindo} onSeguir={() => setSeguindo((v) => !v)} acoes={acoes} />
-          : <AbaEpisodios serieId={Number(id)} temporadas={temporadas} />
+          : <AbaEpisodios serieId={Number(id)} temporadas={temporadas} cacheTemporadas={cacheTemporadas} setCacheTemporadas={setCacheTemporadas} episodiosAssistidos={episodiosAssistidos} setEpisodiosAssistidos={setEpisodiosAssistidos} />
         }
       </div>
     </div>
@@ -245,16 +279,22 @@ function AbaSobre({ serie, elenco, streaming, seguindo, onSeguir, acoes }: {
 
       <div className="grid grid-cols-3 gap-2">
         <ActionBtn
-          icon={acoes.loadingFavorito ? <Loader2 size={20} className="animate-spin" /> : <Heart size={20} />}
+          icon={acoes.loadingFavorito ? <Loader2 size={25} className="animate-spin" /> : <Heart size={25} className={acoes.favorito ? 'fill-[#ef4444] text-[#ef4444]' : ''} />}
           label="Favoritos"
           ativo={acoes.favorito}
+          corAtivo="#ef4444"
           onClick={acoes.toggleFavorito}
         />
-        <ActionBtn icon={<ListPlus size={20} />} label="+ Listas" />
         <ActionBtn
-          icon={acoes.loadingWatchlist ? <Loader2 size={20} className="animate-spin" /> : <Bookmark size={20} />}
+          icon={<ListPlus size={25} />}
+          label="Listas"
+          corAtivo="#a855f7"
+        />
+        <ActionBtn
+          icon={acoes.loadingWatchlist ? <Loader2 size={25} className="animate-spin" /> : <Bookmark size={25} className={acoes.naWatchlist ? 'fill-current' : ''} />}
           label="Quero assistir"
           ativo={acoes.naWatchlist}
+          corAtivo="#eab308"
           onClick={acoes.toggleWatchlist}
         />
       </div>
@@ -316,15 +356,17 @@ function AbaSobre({ serie, elenco, streaming, seguindo, onSeguir, acoes }: {
 
 // Aba eps
 
-function AbaEpisodios({ serieId, temporadas }: {
+function AbaEpisodios({ serieId, temporadas, cacheTemporadas, setCacheTemporadas, episodiosAssistidos, setEpisodiosAssistidos }: {
   serieId: number
   temporadas: Array<{ season_number: number; name: string; episode_count: number }>
+  cacheTemporadas: Record<number, TMDBSeason>
+  setCacheTemporadas: React.Dispatch<React.SetStateAction<Record<number, TMDBSeason>>>
+  episodiosAssistidos: Record<number, boolean>
+  setEpisodiosAssistidos: React.Dispatch<React.SetStateAction<Record<number, boolean>>>
 }) {
   const { profileId } = useAuth()
   const [aberta, setAberta] = useState<number | null>(temporadas[0]?.season_number ?? null)
-  const [cache, setCache] = useState<Record<number, TMDBSeason>>({})
   const [loadingT, setLoadingT] = useState<number | null>(null)
-  const [vistos, setVistos] = useState<Record<number, boolean>>({})
   const [salvandoEp, setSalvandoEp] = useState<number | null>(null)
 
   // estado do modal de ordem cronológica
@@ -338,13 +380,13 @@ function AbaEpisodios({ serieId, temporadas }: {
   // busca todas as temporadas anteriores que ainda não estão no cache
   async function garantirTemporadasAnteriores(targetSeason: number) {
     const faltam = temporadas
-      .filter((t) => t.season_number < targetSeason && !cache[t.season_number])
+      .filter((t) => t.season_number < targetSeason && !Cache[t.season_number])
     if (faltam.length === 0) return
 
     const resultados = await Promise.all(
       faltam.map((t) => getTemporadaSerie(serieId, t.season_number).then((r) => r.data))
     )
-    setCache((c) => {
+    setCacheTemporadas((c) => {
       const next = { ...c }
       resultados.forEach((s) => { next[s.season_number] = s })
       return next
@@ -361,7 +403,7 @@ function AbaEpisodios({ serieId, temporadas }: {
     for (const [sNum, season] of Object.entries(cacheAtualizado)) {
       const s = Number(sNum)
       for (const ep of season.episodes) {
-        if (vistos[ep.id]) continue
+        if (episodiosAssistidos[ep.id]) continue
         if (s < targetSeason) anteriores.push(ep)
         else if (s === targetSeason && ep.episode_number < targetEpisode) anteriores.push(ep)
       }
@@ -382,36 +424,21 @@ function AbaEpisodios({ serieId, temporadas }: {
       })),
       { onConflict: 'user_id,episode_tmdb_id' }
     )
-    setVistos((v) => {
+    setEpisodiosAssistidos((v) => {
       const next = { ...v }
       eps.forEach((ep) => { next[ep.id] = true })
       return next
     })
   }
 
-  // carregas todos os episódios assistidos
-  useEffect(() => {
-    if (!profileId) return
-    supabase
-      .from('series_episode_history')
-      .select('episode_tmdb_id')
-      .eq('user_id', profileId)
-      .eq('tmdb_id', serieId)
-      .then(({ data }) => {
-        const mapa: Record<number, boolean> = {}
-        for (const row of data ?? []) mapa[row.episode_tmdb_id] = true
-        setVistos(mapa)
-      })
-  }, [profileId, serieId])
-
   async function toggle(numero: number) {
     if (aberta === numero) { setAberta(null); return }
     setAberta(numero)
-    if (cache[numero]) return
+    if (cacheTemporadas[numero]) return
     setLoadingT(numero)
     try {
       const { data } = await getTemporadaSerie(serieId, numero)
-      setCache((c) => ({ ...c, [numero]: data }))
+      setCacheTemporadas((c) => ({ ...c, [numero]: data }))
     } catch {
       // silencioso
     } finally {
@@ -421,12 +448,12 @@ function AbaEpisodios({ serieId, temporadas }: {
 
   async function toggleEpisodio(ep: TMDBEpisode) {
     if (!profileId || salvandoEp === ep.id) return
-    const jaVisto = !!vistos[ep.id]
+    const jaVisto = !!episodiosAssistidos[ep.id]
 
     // se está desmarcando, sem necessidade de verificação
     if (jaVisto) {
       setSalvandoEp(ep.id)
-      setVistos((v) => ({ ...v, [ep.id]: false }))
+      setEpisodiosAssistidos((v) => ({ ...v, [ep.id]: false }))
       try {
         await supabase
           .from('series_episode_history')
@@ -434,7 +461,7 @@ function AbaEpisodios({ serieId, temporadas }: {
           .eq('user_id', profileId)
           .eq('episode_tmdb_id', ep.id)
       } catch {
-        setVistos((v) => ({ ...v, [ep.id]: true }))
+        setEpisodiosAssistidos((v) => ({ ...v, [ep.id]: true }))
       } finally {
         setSalvandoEp(null)
       }
@@ -444,7 +471,7 @@ function AbaEpisodios({ serieId, temporadas }: {
     // verifica se há episódios anteriores não assistidos
     // garante que todas as temporadas anteriores estão no cache antes de verificar
     await garantirTemporadasAnteriores(ep.season_number)
-    const cacheAtual = { ...cache }
+    const cacheAtual = { ...cacheTemporadas }
     // inclui a temporada atual se já carregada
     const anteriores = episodiosAnterioresNaoVistos(ep.season_number, ep.episode_number, cacheAtual)
     if (anteriores.length > 0) {
@@ -455,14 +482,14 @@ function AbaEpisodios({ serieId, temporadas }: {
 
     // marca diretamente
     setSalvandoEp(ep.id)
-    setVistos((v) => ({ ...v, [ep.id]: true }))
+    setEpisodiosAssistidos((v) => ({ ...v, [ep.id]: true }))
     try {
       await supabase.from('series_episode_history').upsert(
         { user_id: profileId, tmdb_id: serieId, season_number: ep.season_number, episode_number: ep.episode_number, episode_tmdb_id: ep.id },
         { onConflict: 'user_id,episode_tmdb_id' }
       )
     } catch {
-      setVistos((v) => ({ ...v, [ep.id]: false }))
+      setEpisodiosAssistidos((v) => ({ ...v, [ep.id]: false }))
     } finally {
       setSalvandoEp(null)
     }
@@ -470,21 +497,21 @@ function AbaEpisodios({ serieId, temporadas }: {
 
   async function marcarTemporadaInteira(season: TMDBSeason) {
     if (!profileId) return
-    const todosVistos = season.episodes.every((ep) => !!vistos[ep.id])
+    const todosVistos = season.episodes.every((ep) => !!episodiosAssistidos[ep.id])
 
     if (todosVistos) {
       const ids = season.episodes.map((ep) => ep.id)
-      setVistos((v) => { const next = { ...v }; ids.forEach((id) => delete next[id]); return next })
+      setEpisodiosAssistidos((v) => { const next = { ...v }; ids.forEach((id) => delete next[id]); return next })
       await supabase.from('series_episode_history').delete()
         .eq('user_id', profileId).eq('tmdb_id', serieId).in('episode_tmdb_id', ids)
       return
     }
 
     //verifica episódios anteriores à temporada — carrega temporadas faltantes
-    const primeiroNaoVisto = season.episodes.find((ep) => !vistos[ep.id])
+    const primeiroNaoVisto = season.episodes.find((ep) => !episodiosAssistidos[ep.id])
     if (!primeiroNaoVisto) return
     await garantirTemporadasAnteriores(season.season_number)
-    const cacheAtual = { ...cache }
+    const cacheAtual = { ...cacheTemporadas }
     const anteriores = episodiosAnterioresNaoVistos(season.season_number, primeiroNaoVisto.episode_number, cacheAtual)
 
     if (anteriores.length > 0) {
@@ -493,22 +520,22 @@ function AbaEpisodios({ serieId, temporadas }: {
       return
     }
 
-    await salvarEpisodios(season.episodes.filter((ep) => !vistos[ep.id]))
+    await salvarEpisodios(season.episodes.filter((ep) => !episodiosAssistidos[ep.id]))
   }
 
   // resolução do modal
   async function confirmarMarcarTudo() {
     if (!pendente) return
     if (pendente.tipo === 'episodio') {
-      const cacheAtual = { ...cache }
+      const cacheAtual = { ...cacheTemporadas }
       const anteriores = episodiosAnterioresNaoVistos(pendente.ep.season_number, pendente.ep.episode_number, cacheAtual)
       await salvarEpisodios([...anteriores, pendente.ep])
     } else {
-      const primeiroNaoVisto = pendente.season.episodes.find((ep) => !vistos[ep.id])
+      const primeiroNaoVisto = pendente.season.episodes.find((ep) => !episodiosAssistidos[ep.id])
       if (primeiroNaoVisto) {
-        const cacheAtual = { ...cache }
+        const cacheAtual = { ...cacheTemporadas }
         const anteriores = episodiosAnterioresNaoVistos(pendente.season.season_number, primeiroNaoVisto.episode_number, cacheAtual)
-        await salvarEpisodios([...anteriores, ...pendente.season.episodes.filter((ep) => !vistos[ep.id])])
+        await salvarEpisodios([...anteriores, ...pendente.season.episodes.filter((ep) => !episodiosAssistidos[ep.id])])
       }
     }
     setPendente(null)
@@ -518,26 +545,28 @@ function AbaEpisodios({ serieId, temporadas }: {
     if (!pendente || !profileId) return
     if (pendente.tipo === 'episodio') {
       setSalvandoEp(pendente.ep.id)
-      setVistos((v) => ({ ...v, [pendente.ep.id]: true }))
+      setEpisodiosAssistidos((v) => ({ ...v, [pendente.ep.id]: true }))
       try {
         await supabase.from('series_episode_history').upsert(
           { user_id: profileId, tmdb_id: serieId, season_number: pendente.ep.season_number, episode_number: pendente.ep.episode_number, episode_tmdb_id: pendente.ep.id },
           { onConflict: 'user_id,episode_tmdb_id' }
         )
       } catch {
-        setVistos((v) => ({ ...v, [pendente.ep.id]: false }))
+        setEpisodiosAssistidos((v) => ({ ...v, [pendente.ep.id]: false }))
       } finally {
         setSalvandoEp(null)
       }
     } else {
-      await salvarEpisodios(pendente.season.episodes.filter((ep) => !vistos[ep.id]))
+      await salvarEpisodios(pendente.season.episodes.filter((ep) => !episodiosAssistidos[ep.id]))
     }
     setPendente(null)
   }
 
   useEffect(() => {
-    if (temporadas[0]) toggle(temporadas[0].season_number)
-  }, [serieId]) // eslint-disable-line
+    if (temporadas.length === 0) return
+    // Abre a primeira temporada
+    if (temporadas[0]) setAberta(temporadas[0].season_number)
+  }, [temporadas])
 
   return (
     <div className="px-4 pt-4 space-y-3">
@@ -552,10 +581,10 @@ function AbaEpisodios({ serieId, temporadas }: {
       )}
       {temporadas.map((t) => {
         const isOpen = aberta === t.season_number
-        const season = cache[t.season_number]
+        const season = cacheTemporadas[t.season_number]
         const isLoading = loadingT === t.season_number
         const vistosCount = season
-          ? season.episodes.filter((ep) => !!vistos[ep.id]).length
+          ? season.episodes.filter((ep) => !!episodiosAssistidos[ep.id]).length
           : 0
         const allWatched = season && season.episodes.length > 0 && vistosCount === season.episodes.length
 
@@ -610,7 +639,7 @@ function AbaEpisodios({ serieId, temporadas }: {
               <div className="px-4 pb-3">
                 <div className="h-1 w-full overflow-hidden rounded-full bg-[#2a2a38]">
                   <div
-                    className="h-full rounded-full bg-green-500 transition-all duration-300"
+                    className={['h-full rounded-full transition-all duration-300', allWatched ? 'bg-green-500' : 'bg-yellow-400'].join(' ')}
                     style={{ width: `${(vistosCount / season.episodes.length) * 100}%` }}
                   />
                 </div>
@@ -624,7 +653,7 @@ function AbaEpisodios({ serieId, temporadas }: {
                   <EpisodeRow
                     key={ep.id}
                     ep={ep}
-                    visto={!!vistos[ep.id]}
+                    visto={!!episodiosAssistidos[ep.id]}
                     salvando={salvandoEp === ep.id}
                     onToggleVisto={() => toggleEpisodio(ep)}
                     serieId={serieId}
@@ -635,7 +664,7 @@ function AbaEpisodios({ serieId, temporadas }: {
 
             {isOpen && isLoading && (
               <div className="border-t border-[#2a2a38] flex justify-center py-8">
-                <Loader2 size={20} className="animate-spin text-[#5a5a72]" />
+                <Loader2 size={25} className="animate-spin text-[#5a5a72]" />
               </div>
             )}
           </div>
@@ -708,21 +737,18 @@ function EpisodeRow({ ep, visto, onToggleVisto, serieId, salvando }: {
 
 // Componentes compartilhados
 
-function ActionBtn({ icon, label, ativo = false, onClick }: {
+function ActionBtn({ icon, label, ativo = false, onClick, corAtivo }: {
   icon: React.ReactNode
   label: string
   ativo?: boolean
   onClick?: () => void
+  corAtivo?: string
 }) {
   return (
     <button
       onClick={onClick}
-      className={[
-        'flex flex-col items-center gap-1.5 rounded-xl border py-3.5 transition-colors active:scale-95',
-        ativo
-          ? 'border-[#6366f1]/50 bg-[#6366f1]/15 text-[#6366f1]'
-          : 'border-[#2a2a38] bg-[#1c1c24] text-[#9898ac] hover:border-[#6366f1]/40 hover:text-[#f1f1f3]',
-      ].join(' ')}
+      className="flex flex-col items-center gap-1.5 py-3.5 transition-colors active:scale-95"
+      style={{ color: ativo && corAtivo ? corAtivo : '#9898ac' }}
     >
       {icon}
       <span className="text-[10px] font-medium leading-none">{label}</span>

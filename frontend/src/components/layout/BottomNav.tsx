@@ -36,7 +36,7 @@ export function BottomNav() {
                     'flex items-center justify-center w-10 h-8 rounded-xl transition-all duration-200',
                     isActive ? 'bg-[#6366f1]/15' : '',
                   ].join(' ')}>
-                    <Icon size={20} strokeWidth={isActive ? 2.5 : 1.8} aria-hidden="true" />
+                    <Icon size={25} strokeWidth={isActive ? 2.5 : 1.8} aria-hidden="true" />
                   </span>
                   <span className={[
                     'text-[10px] font-medium tracking-wide transition-colors',

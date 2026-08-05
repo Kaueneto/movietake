@@ -186,16 +186,22 @@ export function DetalhesEpisodio() {
       {/* ações rápidas */}
       <div className="grid grid-cols-3 gap-2 px-4 pt-2">
         <BotaoAcao
-          icon={salvando ? <Loader2 size={20} className="animate-spin" /> : <Eye size={20} />}
+          icon={salvando ? <Loader2 size={25} className="animate-spin" /> : <Eye size={25} />}
           label={assistido ? 'Assistido' : 'Já assisti'}
           ativo={assistido}
+          corAtivo="#f97316"
           onClick={toggleAssistido}
         />
-        <BotaoAcao icon={<Star size={20} />} label="Avaliar" />
         <BotaoAcao
-          icon={<Heart size={20} />}
+          icon={<Star size={25} className={assistido ? 'fill-current' : ''} />}
+          label="Avaliar"
+          corAtivo="#16a34a"
+        />
+        <BotaoAcao
+          icon={<Heart size={25} className={favorito ? 'fill-current' : ''} />}
           label="Favorito"
           ativo={favorito}
+          corAtivo="#dc2626"
           onClick={() => setFavorito((v) => !v)}
         />
       </div>
@@ -377,21 +383,18 @@ function AbaDetalhes({
 
 // Componentes compartilhados
 
-function BotaoAcao({ icon, label, ativo = false, onClick }: {
+function BotaoAcao({ icon, label, ativo = false, onClick, corAtivo }: {
   icon: React.ReactNode
   label: string
   ativo?: boolean
   onClick?: () => void
+  corAtivo?: string
 }) {
   return (
     <button
       onClick={onClick}
-      className={[
-        'flex flex-col items-center gap-1.5 rounded-xl border py-3.5 transition-colors active:scale-95',
-        ativo
-          ? 'border-[#6366f1]/50 bg-[#6366f1]/15 text-[#6366f1]'
-          : 'border-[#2a2a38] bg-[#1c1c24] text-[#9898ac] hover:border-[#6366f1]/40 hover:text-[#f1f1f3]',
-      ].join(' ')}
+      className="flex flex-col items-center gap-1.5 py-3.5 transition-colors active:scale-95"
+      style={{ color: ativo && corAtivo ? corAtivo : '#9898ac' }}
     >
       {icon}
       <span className="text-[10px] font-medium leading-none">{label}</span>

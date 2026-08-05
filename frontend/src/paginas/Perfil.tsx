@@ -139,7 +139,7 @@ export function Perfil() {
           <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-[#5a5a72]">Filmes favoritos</p>
           {loadingFav ? (
             <div className="flex justify-center py-6">
-              <Loader2 size={20} className="animate-spin text-[#5a5a72]" />
+              <Loader2 size={25} className="animate-spin text-[#5a5a72]" />
             </div>
           ) : (
             <div className="grid grid-cols-4 gap-2">
