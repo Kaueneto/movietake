@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Film, Tv, Loader2, BookmarkX, Eye, Bookmark } from 'lucide-react'
+import { ArrowLeft, Film, Tv, Loader2, BookmarkX, Eye, Bookmark, ChevronDown } from 'lucide-react'
 import { useWatchlist, type WatchlistItem } from '../hooks/useWatchlist'
 import { tmdbImage } from '../lib/api'
 import { supabase } from '../lib/supabase'
@@ -87,14 +87,12 @@ export function Watchlist() {
 
         {/* para assistir */}
         {!loading && paraAssistir.length > 0 && (
-          <section className="mb-8" aria-label="Para assistir">
-            <div className="mb-3 flex items-center gap-2">
-              <Bookmark size={14} className="text-[#6366f1]" aria-hidden="true" />
-              <h2 className="text-sm font-semibold text-[#f1f1f3]">Para assistir</h2>
-              <span className="rounded-full bg-[#6366f1]/15 px-2 py-0.5 text-[11px] font-semibold text-[#6366f1]">
-                {paraAssistir.length}
-              </span>
-            </div>
+          <SecaoRecolhivel
+            label="Para assistir"
+            count={paraAssistir.length}
+            cor="text-[#6366f1] bg-[#6366f1]/10"
+            defaultAberta
+          >
             <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
               {paraAssistir.map((item) => (
                 <PosterCard
@@ -106,34 +104,66 @@ export function Watchlist() {
                 />
               ))}
             </div>
-          </section>
+          </SecaoRecolhivel>
         )}
 
         {/* assistidos */}
         {!loading && assistidos.length > 0 && (
-          <section aria-label="Já assistidos">
-            <div className="mb-3 flex items-center gap-2">
-              <Eye size={14} className="text-green-500" aria-hidden="true" />
-              <h2 className="text-sm font-semibold text-[#f1f1f3]">Já assistidos</h2>
-              <span className="rounded-full bg-green-500/15 px-2 py-0.5 text-[11px] font-semibold text-green-500">
-                {assistidos.length}
-              </span>
-            </div>
-            <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
-              {assistidos.map((item) => (
-                <PosterCard
-                  key={item.id}
-                  item={item}
-                  poster={posterFor(item)}
-                  onRemover={() => remover(item.id)}
-                  onClick={() => navigate(item.media_type === 'tv' ? `/series/${item.tmdb_id}` : `/filmes/${item.tmdb_id}`)}
-                  dimmed
-                />
-              ))}
-            </div>
-          </section>
+          <div className={paraAssistir.length > 0 ? 'mt-6' : ''}>
+            <SecaoRecolhivel
+              label="Já assistidos"
+              count={assistidos.length}
+              cor="text-green-400 bg-green-500/10"
+              defaultAberta={false}
+            >
+              <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
+                {assistidos.map((item) => (
+                  <PosterCard
+                    key={item.id}
+                    item={item}
+                    poster={posterFor(item)}
+                    onRemover={() => remover(item.id)}
+                    onClick={() => navigate(item.media_type === 'tv' ? `/series/${item.tmdb_id}` : `/filmes/${item.tmdb_id}`)}
+                    dimmed
+                  />
+                ))}
+              </div>
+            </SecaoRecolhivel>
+          </div>
         )}
       </div>
+    </div>
+  )
+}
+
+function SecaoRecolhivel({ label, count, cor, defaultAberta = true, children }: {
+  label: string
+  count: number
+  cor: string
+  defaultAberta?: boolean
+  children: React.ReactNode
+}) {
+  const [aberta, setAberta] = useState(defaultAberta)
+  return (
+    <div className="space-y-3">
+      <div className="flex justify-center">
+        <button
+          onClick={() => setAberta((v) => !v)}
+          className="flex items-center gap-1.5"
+          aria-expanded={aberta}
+        >
+          <span className={['inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold', cor].join(' ')}>
+            {label}
+            <span className="rounded-full bg-black/20 px-1.5 py-0.5 text-[10px] font-bold leading-none">{count}</span>
+          </span>
+          <ChevronDown
+            size={14}
+            className={['text-[#5a5a72] transition-transform duration-200', aberta ? 'rotate-180' : ''].join(' ')}
+            aria-hidden="true"
+          />
+        </button>
+      </div>
+      {aberta && <div>{children}</div>}
     </div>
   )
 }
