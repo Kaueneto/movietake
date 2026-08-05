@@ -432,7 +432,7 @@ function AbaEpisodios({ serieId, temporadas, cacheTemporadas, setCacheTemporadas
   // busca todas as temporadas anteriores que ainda não estão no cache
   async function garantirTemporadasAnteriores(targetSeason: number) {
     const faltam = temporadas
-      .filter((t) => t.season_number < targetSeason && !Cache[t.season_number])
+      .filter((t) => t.season_number < targetSeason && !cacheTemporadas[t.season_number])
     if (faltam.length === 0) return
 
     const resultados = await Promise.all(
