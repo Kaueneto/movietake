@@ -34,6 +34,7 @@ export function DetalhesSerie() {
   const [error, setError] = useState<string | null>(null)
   const [abaAtiva, setAbaAtiva] = useState<'sobre' | 'episodios'>('sobre')
   const [seguindo, setSeguindo] = useState(false)
+  const [loadingSeguindo, setLoadingSeguindo] = useState(false)
 
   const [customPoster, setCustomPoster] = useState<string | null>(null)
   const [customBackdrop, setCustomBackdrop] = useState<string | null>(null)
@@ -83,7 +84,53 @@ export function DetalhesSerie() {
         for (const row of data ?? []) mapa[row.episode_tmdb_id] = true
         setEpisodiosAssistidos(mapa)
       })
+
+    // Carrega estado de seguindo
+    supabase
+      .from('series_progress')
+      .select('status')
+      .eq('user_id', profileId)
+      .eq('tmdb_id', Number(id))
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) setSeguindo(true)
+      })
   }, [id, profileId])
+
+  async function toggleSeguindo() {
+    if (!profileId || !id || loadingSeguindo) return
+    setLoadingSeguindo(true)
+    try {
+      if (seguindo) {
+        // Remove o progresso apenas se ainda não começou a assistir (plan_to_watch)
+        const { data } = await supabase
+          .from('series_progress')
+          .select('status')
+          .eq('user_id', profileId)
+          .eq('tmdb_id', Number(id))
+          .maybeSingle()
+        if (data?.status === 'plan_to_watch') {
+          await supabase
+            .from('series_progress')
+            .delete()
+            .eq('user_id', profileId)
+            .eq('tmdb_id', Number(id))
+          setSeguindo(false)
+        }
+        // se já está watching/completed não desfaz — apenas ignora o clique
+      } else {
+        await supabase
+          .from('series_progress')
+          .upsert(
+            { user_id: profileId, tmdb_id: Number(id), status: 'plan_to_watch' },
+            { onConflict: 'user_id,tmdb_id' }
+          )
+        setSeguindo(true)
+      }
+    } finally {
+      setLoadingSeguindo(false)
+    }
+  }
 
   // carrega preferência salva ao abrir a página
   useEffect(() => {
@@ -244,7 +291,7 @@ export function DetalhesSerie() {
 
       <div className="bg-[#0f0f13] pb-28">
         {abaAtiva === 'sobre'
-          ? <AbaSobre serie={serie} elenco={elenco} streaming={streaming} seguindo={seguindo} onSeguir={() => setSeguindo((v) => !v)} acoes={acoes} />
+          ? <AbaSobre serie={serie} elenco={elenco} streaming={streaming} seguindo={seguindo} loadingSeguindo={loadingSeguindo} onSeguir={toggleSeguindo} acoes={acoes} />
           : <AbaEpisodios serieId={Number(id)} temporadas={temporadas} cacheTemporadas={cacheTemporadas} setCacheTemporadas={setCacheTemporadas} episodiosAssistidos={episodiosAssistidos} setEpisodiosAssistidos={setEpisodiosAssistidos} />
         }
       </div>
@@ -254,11 +301,12 @@ export function DetalhesSerie() {
 
 // Aba Sobre
 
-function AbaSobre({ serie, elenco, streaming, seguindo, onSeguir, acoes }: {
+function AbaSobre({ serie, elenco, streaming, seguindo, loadingSeguindo, onSeguir, acoes }: {
   serie: TMDBSerieDetails
   elenco: TMDBCastMember[]
   streaming: any[]
   seguindo: boolean
+  loadingSeguindo: boolean
   onSeguir: () => void
   acoes: ReturnType<typeof useUserActions>
 }) {
@@ -266,14 +314,18 @@ function AbaSobre({ serie, elenco, streaming, seguindo, onSeguir, acoes }: {
     <div className="px-4 pt-4 space-y-6">
       <button
         onClick={onSeguir}
+        disabled={loadingSeguindo}
         className={[
-          'flex items-center gap-2 rounded-full border px-5 py-2 text-sm font-semibold transition-colors',
+          'flex items-center gap-2 rounded-full border px-5 py-2 text-sm font-semibold transition-colors disabled:opacity-60',
           seguindo
             ? 'border-[#6366f1] bg-[#6366f1]/15 text-[#6366f1]'
             : 'border-[#2a2a38] bg-transparent text-[#f1f1f3] hover:border-[#6366f1]/40',
         ].join(' ')}
       >
-        <Bell size={15} aria-hidden="true" />
+        {loadingSeguindo
+          ? <Loader2 size={15} className="animate-spin" aria-hidden="true" />
+          : <Bell size={15} aria-hidden="true" />
+        }
         {seguindo ? 'Seguindo' : 'Seguir'}
       </button>
 
@@ -411,7 +463,7 @@ function AbaEpisodios({ serieId, temporadas, cacheTemporadas, setCacheTemporadas
     return anteriores
   }
 
-  // salva lista de episódios no banco
+  // salva lista de episódios no banco e atualiza series_progress para 'watching'
   async function salvarEpisodios(eps: TMDBEpisode[]) {
     if (!profileId || eps.length === 0) return
     await supabase.from('series_episode_history').upsert(
@@ -429,6 +481,13 @@ function AbaEpisodios({ serieId, temporadas, cacheTemporadas, setCacheTemporadas
       eps.forEach((ep) => { next[ep.id] = true })
       return next
     })
+    // Garante que series_progress existe e está como 'watching'
+    supabase
+      .from('series_progress')
+      .upsert(
+        { user_id: profileId, tmdb_id: serieId, status: 'watching' },
+        { onConflict: 'user_id,tmdb_id' }
+      )
   }
 
   async function toggle(numero: number) {
@@ -488,6 +547,13 @@ function AbaEpisodios({ serieId, temporadas, cacheTemporadas, setCacheTemporadas
         { user_id: profileId, tmdb_id: serieId, season_number: ep.season_number, episode_number: ep.episode_number, episode_tmdb_id: ep.id },
         { onConflict: 'user_id,episode_tmdb_id' }
       )
+      // Garante que series_progress existe e está como 'watching'
+      supabase
+        .from('series_progress')
+        .upsert(
+          { user_id: profileId, tmdb_id: serieId, status: 'watching' },
+          { onConflict: 'user_id,tmdb_id' }
+        )
     } catch {
       setEpisodiosAssistidos((v) => ({ ...v, [ep.id]: false }))
     } finally {
