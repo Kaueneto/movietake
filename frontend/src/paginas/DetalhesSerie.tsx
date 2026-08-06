@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Heart, ListPlus, Bookmark, Bell, Calendar,
   MessageSquare, Loader2, AlertCircle, ChevronDown, ChevronRight, Check, Play,
-  ZoomIn, ImagePlus, X,
+  ZoomIn, ImagePlus, X, Eye,
 } from 'lucide-react'
 import {
   getDetalhesSerie,
@@ -21,6 +21,7 @@ import { ModalSelecionarImagem } from '../components/midia/ModalSelecionarImagem
 import { ModalOrdemCronologica } from '../components/serie/ModalOrdemCronologica'
 import { getAuthHeader, supabase } from '../lib/supabase'
 import { useAuth } from '../lib/AuthContext'
+import { getPrefCache, setPrefCache } from '../lib/prefsCache'
 
 const HERO_HEIGHT = 420
 
@@ -37,11 +38,14 @@ export function DetalhesSerie() {
   const [pausado, setPausado] = useState(false)
   const [loadingSeguindo, setLoadingSeguindo] = useState(false)
 
-  const [customPoster, setCustomPoster] = useState<string | null>(null)
-  const [customBackdrop, setCustomBackdrop] = useState<string | null>(null)
+  // inicia do cache — sem flash ao abrir a mesma tela novamente
+  const cachedPrefs = getPrefCache('tv', Number(id) || 0)
+  const [customPoster, setCustomPoster] = useState<string | null>(cachedPrefs?.poster ?? null)
+  const [customBackdrop, setCustomBackdrop] = useState<string | null>(cachedPrefs?.backdrop ?? null)
   const [modalImagem, setModalImagem] = useState<'poster' | 'backdrop' | null>(null)
   const [cacheTemporadas, setCacheTemporadas] = useState<Record<number, TMDBSeason>>({})
-  const [episodiosAssistidos, setEpisodiosAssistidos] = useState<Record<number, boolean>>({})
+  // episodiosAssistidos: episode_tmdb_id → watched_at ISO string (presença = assistido)
+  const [episodiosAssistidos, setEpisodiosAssistidos] = useState<Record<number, string>>({})
 
   const heroRef = useRef<HTMLDivElement>(null)
   const backdropImgRef = useRef<HTMLDivElement>(null)
@@ -77,12 +81,12 @@ export function DetalhesSerie() {
     // Carrega episódios assistidos
     supabase
       .from('series_episode_history')
-      .select('episode_tmdb_id')
+      .select('episode_tmdb_id, watched_at')
       .eq('user_id', profileId)
       .eq('tmdb_id', Number(id))
       .then(({ data }) => {
-        const mapa: Record<number, boolean> = {}
-        for (const row of data ?? []) mapa[row.episode_tmdb_id] = true
+        const mapa: Record<number, string> = {}
+        for (const row of data ?? []) mapa[row.episode_tmdb_id] = row.watched_at
         setEpisodiosAssistidos(mapa)
       })
 
@@ -146,6 +150,7 @@ export function DetalhesSerie() {
         .then((res) => {
           if (res.data.custom_poster_path) setCustomPoster(res.data.custom_poster_path)
           if (res.data.custom_backdrop_path) setCustomBackdrop(res.data.custom_backdrop_path)
+          setPrefCache('tv', Number(id), res.data.custom_poster_path, res.data.custom_backdrop_path)
         })
         .catch(() => {})
     })
@@ -201,6 +206,7 @@ export function DetalhesSerie() {
           onSalvar={(poster, backdrop) => {
             setCustomPoster(poster)
             setCustomBackdrop(backdrop)
+            setPrefCache('tv', Number(id), poster, backdrop)
             setModalImagem(null)
           }}
           onFechar={() => setModalImagem(null)}
@@ -282,7 +288,7 @@ export function DetalhesSerie() {
               key={aba}
               onClick={() => setAbaAtiva(aba)}
               className={[
-                'flex-1 py-3.5 text-base font- font-segoe  tracking-wider transition-colors',
+                'flex-1 py-3.5 text-base font-semibold font-segoe  tracking-wider transition-colors',
                 abaAtiva === aba
                   ? 'border-b-2 border-[#6366f1] text-[#f1f1f3]'
                   : 'text-[#5a5a72]',
@@ -297,8 +303,7 @@ export function DetalhesSerie() {
       <div className="bg-[#0f0f13] pb-28">
         {abaAtiva === 'sobre'
           ? <AbaSobre serie={serie} elenco={elenco} streaming={streaming} seguindo={seguindo} pausado={pausado} loadingSeguindo={loadingSeguindo} onSeguir={toggleSeguindo} acoes={acoes} />
-          : <AbaEpisodios serieId={Number(id)} temporadas={temporadas} cacheTemporadas={cacheTemporadas} setCacheTemporadas={setCacheTemporadas} episodiosAssistidos={episodiosAssistidos} setEpisodiosAssistidos={setEpisodiosAssistidos} onEpisodioMarcado={() => { setSeguindo(true); setPausado(false) }} />
-        }
+          : <AbaEpisodios serieId={Number(id)} temporadas={temporadas} cacheTemporadas={cacheTemporadas} setCacheTemporadas={setCacheTemporadas} episodiosAssistidos={episodiosAssistidos} setEpisodiosAssistidos={setEpisodiosAssistidos} onEpisodioMarcado={() => { setSeguindo(true); setPausado(false) }} />        }
       </div>
     </div>
   )
@@ -421,8 +426,8 @@ function AbaEpisodios({ serieId, temporadas, cacheTemporadas, setCacheTemporadas
   temporadas: Array<{ season_number: number; name: string; episode_count: number }>
   cacheTemporadas: Record<number, TMDBSeason>
   setCacheTemporadas: React.Dispatch<React.SetStateAction<Record<number, TMDBSeason>>>
-  episodiosAssistidos: Record<number, boolean>
-  setEpisodiosAssistidos: React.Dispatch<React.SetStateAction<Record<number, boolean>>>
+  episodiosAssistidos: Record<number, string>
+  setEpisodiosAssistidos: React.Dispatch<React.SetStateAction<Record<number, string>>>
   onEpisodioMarcado: () => void
 }) {
   const { profileId } = useAuth()
@@ -475,6 +480,7 @@ function AbaEpisodios({ serieId, temporadas, cacheTemporadas, setCacheTemporadas
   // salva lista de episódios no banco e atualiza series_progress para 'watching'
   async function salvarEpisodios(eps: TMDBEpisode[]) {
     if (!profileId || eps.length === 0) return
+    const agora = new Date().toISOString()
     await supabase.from('series_episode_history').upsert(
       eps.map((ep) => ({
         user_id: profileId,
@@ -487,7 +493,7 @@ function AbaEpisodios({ serieId, temporadas, cacheTemporadas, setCacheTemporadas
     )
     setEpisodiosAssistidos((v) => {
       const next = { ...v }
-      eps.forEach((ep) => { next[ep.id] = true })
+      eps.forEach((ep) => { next[ep.id] = agora })
       return next
     })
     // Garante que series_progress existe e está como 'watching'
@@ -522,7 +528,7 @@ function AbaEpisodios({ serieId, temporadas, cacheTemporadas, setCacheTemporadas
     // se está desmarcando, sem necessidade de verificação
     if (jaVisto) {
       setSalvandoEp(ep.id)
-      setEpisodiosAssistidos((v) => ({ ...v, [ep.id]: false }))
+      setEpisodiosAssistidos((v) => { const next = { ...v }; delete next[ep.id]; return next })
       try {
         await supabase
           .from('series_episode_history')
@@ -530,16 +536,12 @@ function AbaEpisodios({ serieId, temporadas, cacheTemporadas, setCacheTemporadas
           .eq('user_id', profileId)
           .eq('episode_tmdb_id', ep.id)
       } catch {
-        setEpisodiosAssistidos((v) => ({ ...v, [ep.id]: true }))
+        setEpisodiosAssistidos((v) => ({ ...v, [ep.id]: new Date().toISOString() }))
       } finally {
         setSalvandoEp(null)
       }
       return
     }
-
-    // verifica se há episódios anteriores não assistidos
-    // garante que todas as temporadas anteriores estão no cache antes de verificar
-    await garantirTemporadasAnteriores(ep.season_number)
     const cacheAtual = { ...cacheTemporadas }
     // inclui a temporada atual se já carregada
     const anteriores = episodiosAnterioresNaoVistos(ep.season_number, ep.episode_number, cacheAtual)
@@ -550,8 +552,9 @@ function AbaEpisodios({ serieId, temporadas, cacheTemporadas, setCacheTemporadas
     }
 
     // marca diretamente
+    const agora = new Date().toISOString()
     setSalvandoEp(ep.id)
-    setEpisodiosAssistidos((v) => ({ ...v, [ep.id]: true }))
+    setEpisodiosAssistidos((v) => ({ ...v, [ep.id]: agora }))
     try {
       await supabase.from('series_episode_history').upsert(
         { user_id: profileId, tmdb_id: serieId, season_number: ep.season_number, episode_number: ep.episode_number, episode_tmdb_id: ep.id },
@@ -566,7 +569,7 @@ function AbaEpisodios({ serieId, temporadas, cacheTemporadas, setCacheTemporadas
         )
       onEpisodioMarcado()
     } catch {
-      setEpisodiosAssistidos((v) => ({ ...v, [ep.id]: false }))
+      setEpisodiosAssistidos((v) => { const next = { ...v }; delete next[ep.id]; return next })
     } finally {
       setSalvandoEp(null)
     }
@@ -621,15 +624,16 @@ function AbaEpisodios({ serieId, temporadas, cacheTemporadas, setCacheTemporadas
   async function confirmarApenasEste() {
     if (!pendente || !profileId) return
     if (pendente.tipo === 'episodio') {
+      const agora = new Date().toISOString()
       setSalvandoEp(pendente.ep.id)
-      setEpisodiosAssistidos((v) => ({ ...v, [pendente.ep.id]: true }))
+      setEpisodiosAssistidos((v) => ({ ...v, [pendente.ep.id]: agora }))
       try {
         await supabase.from('series_episode_history').upsert(
           { user_id: profileId, tmdb_id: serieId, season_number: pendente.ep.season_number, episode_number: pendente.ep.episode_number, episode_tmdb_id: pendente.ep.id },
           { onConflict: 'user_id,episode_tmdb_id' }
         )
       } catch {
-        setEpisodiosAssistidos((v) => ({ ...v, [pendente.ep.id]: false }))
+        setEpisodiosAssistidos((v) => { const next = { ...v }; delete next[pendente.ep.id]; return next })
       } finally {
         setSalvandoEp(null)
       }
@@ -639,14 +643,12 @@ function AbaEpisodios({ serieId, temporadas, cacheTemporadas, setCacheTemporadas
     setPendente(null)
   }
 
-  useEffect(() => {
-    if (temporadas.length === 0) return
-    // Abre a primeira temporada
-    if (temporadas[0]) setAberta(temporadas[0].season_number)
-  }, [temporadas])
+  // todos os episódios em ordem linear, de todas as temporadas carregadas
+  const todosEpisodiosLinear: TMDBEpisode[] = temporadas
+    .flatMap((t) => cacheTemporadas[t.season_number]?.episodes ?? [])
 
   return (
-    <div className="px-4 pt-4 space-y-3">
+    <div className="pt-4 space-y-4">
       {/* modal de ordem cronológica */}
       {pendente && (
         <ModalOrdemCronologica
@@ -656,115 +658,177 @@ function AbaEpisodios({ serieId, temporadas, cacheTemporadas, setCacheTemporadas
           onFechar={() => setPendente(null)}
         />
       )}
-      {temporadas.map((t) => {
-        const isOpen = aberta === t.season_number
-        const season = cacheTemporadas[t.season_number]
-        const isLoading = loadingT === t.season_number
-        const vistosCount = season
-          ? season.episodes.filter((ep) => !!episodiosAssistidos[ep.id]).length
-          : 0
-        const allWatched = season && season.episodes.length > 0 && vistosCount === season.episodes.length
 
-        return (
-          <div key={t.season_number} className="overflow-hidden rounded-2xl border border-[#2a2a38] bg-[#1c1c24]">
+      {/* Faixa linear de episódios */}
+      {todosEpisodiosLinear.length > 0 && (
+        <FaixaLinearEpisodios
+          episodios={todosEpisodiosLinear}
+          episodiosAssistidos={episodiosAssistidos}
+          salvandoEp={salvandoEp}
+          onToggle={toggleEpisodio}
+          serieId={serieId}
+        />
+      )}
 
-            {/* Header da temporada */}
-            <div className="flex items-center px-4 py-4 gap-3">
-              {/* checkzinho da temporada inteira */}
-              {season ? (
-                <button
-                  onClick={() => marcarTemporadaInteira(season)}
-                  aria-label={allWatched ? 'Desmarcar temporada' : 'Marcar temporada como assistida'}
-                  className={[
-                    'flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 transition-all duration-200',
-                    allWatched
-                      ? 'border-green-500 bg-green-500 scale-110'
-                      : 'border-[#2a2a38] hover:border-green-500/50',
-                  ].join(' ')}
-                >
-                  {allWatched && <Check size={12} className="text-white" aria-hidden="true" />}
-                </button>
-              ) : (
-                <div className="h-6 w-6 shrink-0 rounded-full border-2 border-[#2a2a38]" />
+      {/* Acordeons por temporada */}
+     <div className="space-y-4 px-4">
+  {temporadas.map((t) => {
+    const isOpen = aberta === t.season_number
+    const season = cacheTemporadas[t.season_number]
+    const isLoading = loadingT === t.season_number
+
+    const vistosCount = season
+      ? season.episodes.filter((ep) => !!episodiosAssistidos[ep.id]).length
+      : 0
+
+    const allWatched =
+      season &&
+      season.episodes.length > 0 &&
+      vistosCount === season.episodes.length
+
+    return (
+      <div
+        key={t.season_number}
+        className="rounded-3xl bg-white/[0.03] backdrop-blur-xl transition-all duration-300 hover:bg-white/[0.05]"
+      >
+        {/* Header */}
+        <div className="flex items-center gap-4 px-5 py-4">
+          {season ? (
+            <button
+              onClick={() => marcarTemporadaInteira(season)}
+              aria-label={
+                allWatched
+                  ? 'Desmarcar temporada'
+                  : 'Marcar temporada como assistida'
+              }
+              className={[
+                'flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition-all duration-200',
+                allWatched
+                  ? 'bg-green-500  shadow-lg'
+                  : 'bg-white/10 backdrop-blur-md hover:bg-white/20',
+              ].join(' ')}
+            >
+              {allWatched && (
+                <Check
+                  size={14}
+                  className="text-black"
+                  aria-hidden="true"
+                  
+                />
               )}
+            </button>
+          ) : (
+            <div className="h-7 w-7 rounded-full bg-white/10" />
+          )}
 
-              {/* título e contagem — clicável para abrir/fechar */}
-              <button
-                onClick={() => toggle(t.season_number)}
-                className="flex flex-1 items-center justify-between text-left"
-                aria-expanded={isOpen}
-              >
-                <div>
-                  <p className="text-sm font-semibold text-[#f1f1f3]">{t.name}</p>
-                  <p className="mt-0.5 text-xs text-[#5a5a72]">
-                    {vistosCount}/{t.episode_count} episódios assistidos
-                  </p>
-                </div>
-                <div className="flex items-center gap-2 ml-2">
-                  {isLoading && <Loader2 size={14} className="animate-spin text-[#5a5a72]" />}
-                  <ChevronDown
-                    size={18}
-                    className={['text-[#5a5a72] transition-transform duration-200', isOpen ? 'rotate-180' : ''].join(' ')}
-                    aria-hidden="true"
-                  />
-                </div>
-              </button>
+          <button
+            onClick={() => toggle(t.season_number)}
+            className="flex flex-1 items-center justify-between text-left"
+            aria-expanded={isOpen}
+          >
+            <div>
+              <h3 className="text-base font-semibold text-white">
+                {t.name}
+              </h3>
+
+              <p className="mt-1 text-sm text-zinc-400">
+                {vistosCount}/{t.episode_count} episódios assistidos
+              </p>
             </div>
 
-            {/* barrinha de progresso  simples*/}
-            {season && season.episodes.length > 0 && (
-              <div className="px-4 pb-3">
-                <div className="h-1 w-full overflow-hidden rounded-full bg-[#2a2a38]">
-                  <div
-                    className={['h-full rounded-full transition-all duration-300', allWatched ? 'bg-green-500' : 'bg-yellow-400'].join(' ')}
-                    style={{ width: `${(vistosCount / season.episodes.length) * 100}%` }}
-                  />
-                </div>
-              </div>
-            )}
+            <div className="flex items-center gap-3">
+              {isLoading && (
+                <Loader2
+                  size={16}
+                  className="animate-spin text-zinc-500"
+                />
+              )}
 
-            {/* Lista de episódios */}
-            {isOpen && season && (
-              <div className="border-t border-[#2a2a38]">
-                {season.episodes.map((ep) => (
-                  <EpisodeRow
-                    key={ep.id}
-                    ep={ep}
-                    visto={!!episodiosAssistidos[ep.id]}
-                    salvando={salvandoEp === ep.id}
-                    onToggleVisto={() => toggleEpisodio(ep)}
-                    serieId={serieId}
-                  />
-                ))}
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 backdrop-blur-xl">
+                <ChevronDown
+                  size={18}
+                  className={[
+                    'transition-transform duration-300 text-white',
+                    isOpen ? 'rotate-180' : '',
+                  ].join(' ')}
+                />
               </div>
-            )}
+            </div>
+          </button>
+        </div>
 
-            {isOpen && isLoading && (
-              <div className="border-t border-[#2a2a38] flex justify-center py-8">
-                <Loader2 size={25} className="animate-spin text-[#5a5a72]" />
-              </div>
-            )}
+        {/* Barra */}
+        {season && season.episodes.length > 0 && (
+          <div className="px-5 pb-4">
+            <div className="h-[3px] w-full overflow-hidden rounded-full bg-white/10">
+              <div
+                className={[
+                  'h-full rounded-full transition-all duration-500',
+                  allWatched ? 'bg-green-500' : 'bg-green-500/70',
+                ].join(' ')}
+                style={{
+                  width: `${
+                    (vistosCount / season.episodes.length) * 100
+                  }%`,
+                }}
+              />
+            </div>
           </div>
-        )
-      })}
+        )}
+
+        {/* Episódios */}
+        {isOpen && season && (
+          <div className="px-3 pb-3">
+            {season.episodes.map((ep) => (
+              <EpisodeRow
+                key={ep.id}
+                ep={ep}
+                watchedAt={episodiosAssistidos[ep.id] ?? null}
+                salvando={salvandoEp === ep.id}
+                onToggleVisto={() => toggleEpisodio(ep)}
+                serieId={serieId}
+              />
+            ))}
+          </div>
+        )}
+
+        {isOpen && isLoading && (
+          <div className="flex justify-center py-8">
+            <Loader2
+              size={28}
+              className="animate-spin text-zinc-500"
+            />
+          </div>
+        )}
+      </div>
+    )
+  })}
+
+      </div>
     </div>
   )
 }
 
 // linha de episódio
 
-function EpisodeRow({ ep, visto, onToggleVisto, serieId, salvando }: {
+function EpisodeRow({ ep, watchedAt, onToggleVisto, serieId, salvando }: {
   ep: TMDBEpisode
-  visto: boolean
+  watchedAt: string | null
   onToggleVisto: () => void
   serieId: number
   salvando?: boolean
 }) {
   const navigate = useNavigate()
   const thumb = tmdbImage(ep.still_path, 'w185')
+  const visto = watchedAt !== null
+
+  const dataAssistido = watchedAt
+    ? new Date(watchedAt).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })
+    : null
 
   return (
-    <div className="flex items-center gap-3 border-b border-[#2a2a38] px-3 py-3 last:border-0">
+    <div className={['flex items-center gap-3 border-b border-[#2a2a38] px-3 py-3 last:border-0 transition-colors', visto ? 'bg-[#161618]' : ''].join(' ')}>
+      {/* check — área isolada */}
       <button
         onClick={onToggleVisto}
         disabled={salvando}
@@ -780,39 +844,197 @@ function EpisodeRow({ ep, visto, onToggleVisto, serieId, salvando }: {
         {salvando
           ? <Loader2 size={11} className="animate-spin text-[#5a5a72]" aria-hidden="true" />
           : visto
-            ? <Check size={13} className="text-white" aria-hidden="true" />
+            ? <Check size={13} className="text-black" aria-hidden="true" />
             : null
         }
       </button>
 
-      <div className="h-[3.75rem] w-[6.5rem] shrink-0 overflow-hidden rounded-lg bg-[#16161c]">
-        {thumb
-          ? <img src={thumb} alt="" aria-hidden="true" loading="lazy" className="h-full w-full object-cover" />
-          : <div className="flex h-full w-full items-center justify-center text-[#5a5a72]"><Play size={16} /></div>
-        }
-      </div>
-
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-[#f1f1f3] line-clamp-2 leading-snug">
-          {ep.episode_number}. {ep.name}
-        </p>
-        {ep.runtime && (
-          <p className="mt-0.5 text-xs text-[#5a5a72]">{ep.runtime} min</p>
-        )}
-      </div>
-
+      {/* area clicável para detalhes: thumbnail + texto + seta */}
       <button
         onClick={() => navigate(`/series/${serieId}/temporadas/${ep.season_number}/episodios/${ep.episode_number}`)}
-        aria-label="Ver detalhes do episódio"
-        className="shrink-0 text-[#2a2a38] transition-colors hover:text-[#6366f1]"
+        className="flex flex-1 min-w-0 items-center gap-3 text-left active:opacity-1000 transition-opacity"
+        aria-label={`Ver detalhes de ${ep.name}`}
       >
-        <ChevronRight size={15} aria-hidden="true" />
+        <div className={['h-[3.75rem] w-[6.5rem] shrink-0 overflow-hidden rounded-lg bg-[#16161c]', visto ? 'opacity-50' : ''].join(' ')}>
+          {thumb
+            ? <img src={thumb} alt="" aria-hidden="true" loading="lazy" className="h-full w-full object-cover" />
+            : <div className="flex h-full w-full items-center justify-center text-[#5a5a72]"><Play size={16} /></div>
+          }
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <p className={['text-sm font-medium line-clamp-2 leading-snug', visto ? 'text-[#5a5a72]' : 'text-[#f1f1f3]'].join(' ')}>
+            {ep.episode_number}. {ep.name}
+          </p>
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+            {ep.runtime && (
+              <span className="text-xs text-[#5a5a72]">{ep.runtime} min</span>
+            )}
+            {dataAssistido && (
+              <span className="flex items-center gap-1 text-[10px] text-green-500/80">
+                <Eye size={9} aria-hidden="true" />
+                {dataAssistido}
+              </span>
+            )}
+          </div>
+        </div>
+
+        <ChevronRight size={15} className="shrink-0 text-[#3a3a50]" aria-hidden="true" />
       </button>
     </div>
   )
 }
 
-// Componentes compartilhados
+// Faixa linear de episódios — scroll horizontal, centraliza no próximo a assistir
+
+function FaixaLinearEpisodios({ episodios, episodiosAssistidos, salvandoEp, onToggle, serieId }: {
+  episodios: TMDBEpisode[]
+  episodiosAssistidos: Record<number, string>
+  salvandoEp: number | null
+  onToggle: (ep: TMDBEpisode) => void
+  serieId: number
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const navigate = useNavigate()
+
+  const proximoIdx = episodios.findIndex((ep) => !episodiosAssistidos[ep.id])
+  const focoIdx = Math.max(0, proximoIdx === -1 ? episodios.length - 1 : proximoIdx)
+
+  // card 136px + gap 8px = 144 por slot
+  useEffect(() => {
+    if (!scrollRef.current) return
+    const SLOT = 144
+    const offset = focoIdx * SLOT - scrollRef.current.clientWidth / 2 + SLOT / 2
+    scrollRef.current.scrollTo({ left: Math.max(0, offset), behavior: 'smooth' })
+  }, [focoIdx])
+
+  return (
+  <div className="pb-5">
+    <div
+      ref={scrollRef}
+      className="flex gap-3 overflow-x-auto px-4 py-1"
+      style={{ scrollbarWidth: 'none', touchAction: 'pan-x' }}
+    >
+      {episodios.map((ep, idx) => {
+        const visto = !!episodiosAssistidos[ep.id]
+        const isProximo = idx === proximoIdx
+        const salvando = salvandoEp === ep.id
+
+        const thumb = tmdbImage(ep.still_path, 'w342')
+        const sNum = ep.season_number < 10 ? `S0${ep.season_number}` : `S${ep.season_number}`
+        const eNum = ep.episode_number < 10 ? `E0${ep.episode_number}` : `E${ep.episode_number}`
+
+        return (
+          <div
+            key={ep.id}
+            className={[
+              'relative shrink-0 transition-all duration-300',
+              isProximo
+                ? 'scale-[1.06]'
+                : 'opacity-85 hover:opacity-100 hover:scale-[1.01]',
+            ].join(' ')}
+            style={{ width: 200 }}
+          >
+            {/* Thumbnail */}
+            <button
+              onClick={() =>
+                navigate(
+                  `/series/${serieId}/temporadas/${ep.season_number}/episodios/${ep.episode_number}`
+                )
+              }
+              className="relative block w-full overflow-hidden rounded-[22px]"
+              style={{ height: 120 }}
+              aria-label={`Ver detalhes de ${ep.name}`}
+            >
+              {thumb ? (
+                <>
+                  <img
+                    src={thumb}
+                    alt=""
+                    aria-hidden="true"
+                    draggable={false}
+                    className={[
+                      'h-full w-full object-cover transition-all duration-300',
+                      visto ? 'brightness-50 saturate-50' : '',
+                    ].join(' ')}
+                  />
+
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
+                </>
+              ) : (
+                <div className="flex h-full w-full items-center justify-center bg-zinc-900">
+                  <Play size={18} className="text-zinc-400" />
+                </div>
+              )}
+
+              {/* Badge Próximo */}
+              {isProximo && !visto && (
+                <div className="absolute top-2 left-2">
+                  <span
+                    className="
+                      rounded-full
+                      border
+                      border-white/10
+                      bg-white/15
+                      px-2.5
+                      py-1
+                      text-[9px]
+                      font-medium
+                      text-white
+                      backdrop-blur-xl
+                    "
+                  >
+                    Próximo
+                  </span>
+                </div>
+              )}
+            </button>
+
+            {/* rodape com a temporada e ep */}
+            <div className="mt-2 flex items-center justify-between px-1">
+              <span
+                className={[
+                  'text-xs font-medium tracking-wide',
+                  visto ? 'text-zinc-500' : 'text-zinc-200',
+                ].join(' ')}
+              >
+                {sNum} · {eNum}
+              </span>
+
+              <button
+                onClick={() => onToggle(ep)}
+                disabled={!!salvando}
+                aria-label={visto ? 'Desmarcar como visto' : 'Marcar como visto'}
+                className={[
+                  'flex h-6 w-6 items-center justify-center rounded-full transition-all duration-200',
+                  visto
+                    ? 'bg-green-500 text-black'
+                    : 'bg-white/10 backdrop-blur-md hover:bg-white/20',
+                  salvando ? 'opacity-50' : '',
+                ].join(' ')}
+              >
+                {salvando ? (
+                  <Loader2
+                    size={12}
+                    className="animate-spin text-white"
+                    aria-hidden="true"
+                  />
+                ) : visto ? (
+                  <Check
+                    size={12}
+                    className="text-black"
+                    aria-hidden="true"
+                  />
+                ) : null}
+              </button>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  </div>
+)
+}
 
 function ActionBtn({ icon, label, ativo = false, onClick, corAtivo }: {
   icon: React.ReactNode

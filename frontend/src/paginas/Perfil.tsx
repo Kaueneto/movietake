@@ -15,7 +15,8 @@ import { ModalSelecionarFavorito } from '../components/perfil/ModalSelecionarFav
 export function Perfil() {
   const { user, signOut } = useAuth()
   const navigate = useNavigate()
-  const { perfil, salvando, atualizarAvatar, atualizarBackdrop } = usePerfil()
+  const { perfil, atualizarAvatar, atualizarBackdrop } = usePerfil()
+  const [salvandoImg, setSalvandoImg] = useState(false)
   const { items: watchlist, loading: loadingWl } = useWatchlist()
   const { films: favFilms, loading: loadingFav, definir: definirFavorito } = useFavoriteFilms()
   const [slotEditando, setSlotEditando] = useState<number | null>(null)
@@ -37,13 +38,13 @@ export function Perfil() {
 
   function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
-    if (file) atualizarAvatar(file)
+    if (file) { setSalvandoImg(true); atualizarAvatar(file).finally(() => setSalvandoImg(false)) }
     e.target.value = ''
   }
 
   function handleBackdropChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
-    if (file) atualizarBackdrop(file)
+    if (file) { setSalvandoImg(true); atualizarBackdrop(file).finally(() => setSalvandoImg(false)) }
     e.target.value = ''
   }
 
@@ -106,7 +107,7 @@ export function Perfil() {
             <div className="absolute bottom-0 right-0 flex h-6 w-6 items-center justify-center rounded-full border-2 border-[#0f0f13] bg-[#6366f1] shadow-md">
               <Camera size={11} className="text-white" aria-hidden="true" />
             </div>
-            {salvando && (
+            {salvandoImg && (
               <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/50">
                 <Loader2 size={16} className="animate-spin text-white" />
               </div>

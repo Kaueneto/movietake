@@ -55,7 +55,7 @@ export function Assistindo() {
                   <SecaoRecolhivel
                     label="Em andamento"
                     count={emAndamento.length}
-                    cor="text-[#6366f1] bg-[#6366f1]/10"
+                    cor="text-[#6366f1] bg-[#6366f1]/10 uppercase"
                     defaultAberta
                   >
                     {emAndamento.map((serie) => (
@@ -69,7 +69,7 @@ export function Assistindo() {
                   <SecaoRecolhivel
                     label="Não iniciadas"
                     count={naoIniciadas.length}
-                    cor="text-[#9898ac] bg-[#2a2a38]"
+                    cor="text-[#9898ac] bg-[#2a2a38] uppercase"
                     defaultAberta
                   >
                     {naoIniciadas.map((serie) => (

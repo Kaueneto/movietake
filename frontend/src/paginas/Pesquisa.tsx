@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Search, X, Loader2, TrendingUp, AlertCircle } from 'lucide-react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { PageLayout } from '../components/layout/PageLayout'
 import { CardMedia } from '../components/pesquisar/CardMedia'
 import { CardPessoa } from '../components/pesquisar/CardPessoa'
@@ -14,38 +15,31 @@ import {
   type TMDBPerson,
 } from '../lib/api'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../lib/AuthContext'
 
-// Cache fora do componente — persiste entre remontagens e navegações
-// chave: "mediaType-tmdbId" → poster path ou null
+// cache de posters — fora do componente, sobrevive a remontagens
 const postersCache: Record<string, string | null> = {}
-// rastreia quais ids já foram consultados para não repetir queries
 const consultados = new Set<string>()
 
-async function buscarPrefs(ids: number[]): Promise<Record<string, string | null>> {
+// persiste o filtro selecionado entre navegações
+const FILTRO_KEY = 'pesquisa_filtro'
+function getFiltroSalvo(): FiltroTipo {
+  try { return (localStorage.getItem(FILTRO_KEY) as FiltroTipo) ?? 'all' } catch { return 'all' }
+}
+function salvarFiltro(f: FiltroTipo) {
+  try { localStorage.setItem(FILTRO_KEY, f) } catch { /* sem localStorage */ }
+}
+
+async function buscarPrefs(ids: number[], profileId: number): Promise<Record<string, string | null>> {
   const novos = ids.filter((id) => !consultados.has(String(id)))
   if (novos.length === 0) return {}
-
-  // Marca como consultados imediatamente para evitar chamadas paralelas duplicadas
   novos.forEach((id) => consultados.add(String(id)))
-
   try {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return {}
-
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('auth_id', user.id)
-      .single()
-
-    if (!profile) return {}
-
     const { data } = await supabase
       .from('user_media_preferences')
       .select('tmdb_id, media_type, custom_poster_path')
-      .eq('user_id', profile.id)
+      .eq('user_id', profileId)
       .in('tmdb_id', novos)
-
     const resultado: Record<string, string | null> = {}
     for (const p of data ?? []) {
       const key = `${p.media_type}-${p.tmdb_id}`
@@ -54,7 +48,6 @@ async function buscarPrefs(ids: number[]): Promise<Record<string, string | null>
     }
     return resultado
   } catch {
-    // Remove do set para permitir retry
     novos.forEach((id) => consultados.delete(String(id)))
     return {}
   }
@@ -62,88 +55,81 @@ async function buscarPrefs(ids: number[]): Promise<Record<string, string | null>
 
 export function Pesquisa() {
   const [query, setQuery] = useState('')
-  const [filtro, setFiltro] = useState<FiltroTipo>('all')
-  const [results, setResults] = useState<AnyMediaItem[]>([])
-  const [trending, setTrending] = useState<TMDBMediaItem[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [totalResults, setTotalResults] = useState(0)
-  // Inicia com o cache já populado — evita flash ao remontar
+  // Inicia com o filtro salvo — não reseta ao navegar
+  const [filtro, setFiltro] = useState<FiltroTipo>(getFiltroSalvo)
+  // Inicia com o cache já populado — sem flash ao remontar
   const [posters, setPosters] = useState<Record<string, string | null>>({ ...postersCache })
+  const { profileId } = useAuth()
+  const queryClient = useQueryClient()
 
   const debouncedQuery = useDebounce(query, 350)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  // Persiste o filtro ao mudar
+  function handleFiltroChange(f: FiltroTipo) {
+    setFiltro(f)
+    salvarFiltro(f)
+  }
+
+  // aplica posters customizados sem causar flash — atualiza só se houver novidade
+  function aplicarPosters(prefs: Record<string, string | null>) {
+    if (Object.keys(prefs).length === 0) return
+    setPosters((p) => {
+      const hasChange = Object.entries(prefs).some(([k, v]) => p[k] !== v)
+      return hasChange ? { ...p, ...prefs } : p
+    })
+  }
+
+  // trending — cacheado por 5 minutos, não recarrega ao voltar para a página
+  const tipo = filtro === 'person' ? 'all' : filtro
+  const { data: trendingData } = useQuery({
+    queryKey: ['trending', tipo],
+    queryFn: async () => {
+      const { data } = await getTrending(tipo, 'week')
+      const items = data.results
+        .filter((r) => r.media_type === 'movie' || r.media_type === 'tv')
+        .slice(0, 12)
+      if (profileId) {
+        buscarPrefs(items.map((i) => i.id), profileId).then(aplicarPosters)
+      }
+      return items as TMDBMediaItem[]
+    },
+    staleTime: 5 * 60_000,
+  })
+  const trending = trendingData ?? []
+
+  // busca — cacheada por 60s, evita re-fetch ao voltar com o mesmo termo
+  const { data: searchData, isFetching: searchLoading, error: searchError } = useQuery({
+    queryKey: ['search', debouncedQuery, filtro],
+    queryFn: async () => {
+      const { data } = await pesquisar(debouncedQuery, filtro)
+      const midias = data.results.filter(
+        (r) => r.media_type === 'movie' || r.media_type === 'tv'
+      )
+      if (profileId && midias.length) {
+        buscarPrefs(midias.map((i) => i.id), profileId).then(aplicarPosters)
+      }
+      return data.results
+    },
+    enabled: debouncedQuery.trim().length > 0,
+    staleTime: 60_000,
+  })
+
+  const results = searchData ?? []
+  const loading = searchLoading && debouncedQuery.trim().length > 0
 
   function customPoster(mediaType: string, tmdbId: number): string | null {
     return posters[`${mediaType}-${tmdbId}`] ?? null
   }
 
-  async function aplicarPrefs(ids: number[]) {
-    const novos = await buscarPrefs(ids)
-    if (Object.keys(novos).length > 0) {
-      setPosters((p) => ({ ...p, ...novos }))
-    }
-  }
-
-  // trending — carrega ao montar e quando o filtro muda sem query ativa
-  useEffect(() => {
-    const tipo = filtro === 'person' ? 'all' : filtro
-    getTrending(tipo, 'week')
-      .then(async ({ data }) => {
-        const items = data.results
-          .filter((r) => r.media_type === 'movie' || r.media_type === 'tv')
-          .slice(0, 12)
-        setTrending(items)
-        // Posters em paralelo sem bloquear exibição
-        aplicarPrefs(items.map((i) => i.id))
-      })
-      .catch(() => {})
-  }, [filtro])
-
-  // Busca com debounce
-  useEffect(() => {
-    if (!debouncedQuery.trim()) {
-      setResults([])
-      setError(null)
-      setTotalResults(0)
-      return
-    }
-
-    let cancelled = false
-
-    async function buscar() {
-      setLoading(true)
-      setError(null)
-      try {
-        const { data } = await pesquisar(debouncedQuery, filtro)
-        if (cancelled) return
-        setResults(data.results)
-        setTotalResults(data.total_results)
-
-        // Busca posters dos resultados em paralelo
-        const ids = data.results
-          .filter((r) => r.media_type === 'movie' || r.media_type === 'tv')
-          .map((r) => r.id)
-        aplicarPrefs(ids)
-      } catch {
-        if (!cancelled) setError('Não foi possível buscar. Verifique sua conexão.')
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }
-
-    buscar()
-    return () => { cancelled = true }
-  }, [debouncedQuery, filtro])
-
   const showTrending = !query.trim() && trending.length > 0
-  const showEmpty = !loading && !error && query.trim() && results.length === 0
+  const showEmpty = !loading && !searchError && query.trim() && results.length === 0
   const mediaItems = results.filter((r): r is TMDBMediaItem => !isPerson(r))
   const peopleItems = results.filter((r): r is TMDBPerson => isPerson(r))
 
   return (
     <PageLayout noPadding>
-            <div className="sticky top-0 z-40 space-y-3 bg-[#0f0f13]/95 px-4 pt-5 pb-3 backdrop-blur-xl">
+      <div className="sticky top-0 z-40 space-y-3 bg-[#0f0f13]/95 px-4 pt-5 pb-3 backdrop-blur-xl">
         <h1 className="text-xl font-bold text-[#f1f1f3]">Pesquisar</h1>
 
         <div className="relative">
@@ -168,7 +154,7 @@ export function Pesquisa() {
           )}
         </div>
 
-        <FiltroPesquisa filtro={filtro} onChange={setFiltro} />
+        <FiltroPesquisa filtro={filtro} onChange={handleFiltroChange} />
       </div>
 
       <div className="px-4 pt-3 pb-4">
@@ -179,10 +165,10 @@ export function Pesquisa() {
           </div>
         )}
 
-        {error && !loading && (
+        {searchError && !loading && (
           <div className="flex flex-col items-center gap-3 py-16 text-center">
             <AlertCircle size={32} className="text-red-400" aria-hidden="true" />
-            <p className="text-sm text-[#9898ac]">{error}</p>
+            <p className="text-sm text-[#9898ac]">Não foi possível buscar. Verifique sua conexão.</p>
           </div>
         )}
 
@@ -194,27 +180,16 @@ export function Pesquisa() {
           </div>
         )}
 
-        {!loading && !error && results.length > 0 && (
+        {!loading && !searchError && results.length > 0 && (
           <section aria-label="Resultados da busca" className="space-y-5">
-            <p className="text-xs text-[#5a5a72]">
-              {totalResults.toLocaleString('pt-BR')} resultados encontrados
-            </p>
-
             {mediaItems.length > 0 && (
               <div>
                 {filtro === 'all' && peopleItems.length > 0 && (
-                  <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[#5a5a72]">
-                    Filmes &amp; Séries
-                  </h2>
+                  <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[#5a5a72]">Filmes &amp; Séries</h2>
                 )}
                 <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
                   {mediaItems.map((item) => (
-                    <CardMedia
-                      key={`${item.media_type}-${item.id}`}
-                      item={item}
-                      mediaType={item.media_type}
-                      customPosterPath={customPoster(item.media_type, item.id)}
-                    />
+                    <CardMedia key={`${item.media_type}-${item.id}`} item={item} mediaType={item.media_type} customPosterPath={customPoster(item.media_type, item.id)} />
                   ))}
                 </div>
               </div>
@@ -223,9 +198,7 @@ export function Pesquisa() {
             {peopleItems.length > 0 && (
               <div>
                 {filtro === 'all' && mediaItems.length > 0 && (
-                  <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[#5a5a72]">
-                    Pessoas
-                  </h2>
+                  <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[#5a5a72]">Pessoas</h2>
                 )}
                 <div className="flex flex-col gap-2">
                   {peopleItems.map((person) => (
@@ -245,12 +218,7 @@ export function Pesquisa() {
             </div>
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
               {trending.map((item) => (
-                <CardMedia
-                  key={`${item.media_type}-${item.id}`}
-                  item={item}
-                  mediaType={item.media_type}
-                  customPosterPath={customPoster(item.media_type, item.id)}
-                />
+                <CardMedia key={`${item.media_type}-${item.id}`} item={item} mediaType={item.media_type} customPosterPath={customPoster(item.media_type, item.id)} />
               ))}
             </div>
           </section>

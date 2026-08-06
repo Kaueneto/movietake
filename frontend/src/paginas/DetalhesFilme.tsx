@@ -17,6 +17,7 @@ import { useLongPress } from '../hooks/useLongPress'
 import { useUserActions } from '../hooks/useUserActions'
 import { ModalSelecionarImagem } from '../components/midia/ModalSelecionarImagem'
 import { getAuthHeader } from '../lib/supabase'
+import { getPrefCache, setPrefCache } from '../lib/prefsCache'
 
 const HERO_HEIGHT = 420
 
@@ -54,8 +55,10 @@ export function DetalhesFilme() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [abaAtiva, setAbaAtiva] = useState<'sobre' | 'detalhes'>('sobre')
-  const [customPoster, setCustomPoster] = useState<string | null>(null)
-  const [customBackdrop, setCustomBackdrop] = useState<string | null>(null)
+  // inicia do cache — sem flash ao abrir a mesma tela novamente
+  const cachedPrefs = getPrefCache('movie', Number(id) || 0)
+  const [customPoster, setCustomPoster] = useState<string | null>(cachedPrefs?.poster ?? null)
+  const [customBackdrop, setCustomBackdrop] = useState<string | null>(cachedPrefs?.backdrop ?? null)
   const [modalImagem, setModalImagem] = useState<'poster' | 'backdrop' | null>(null)
 
   const heroRef = useRef<HTMLDivElement>(null)
@@ -88,6 +91,8 @@ export function DetalhesFilme() {
         .then((res) => {
           if (res.data.custom_poster_path) setCustomPoster(res.data.custom_poster_path)
           if (res.data.custom_backdrop_path) setCustomBackdrop(res.data.custom_backdrop_path)
+          // atualiza cache para evitar flash na próxima visita
+          setPrefCache('movie', Number(id), res.data.custom_poster_path, res.data.custom_backdrop_path)
         })
         .catch(() => {})
     })
@@ -144,6 +149,7 @@ export function DetalhesFilme() {
           onSalvar={(p, b) => {
             setCustomPoster(p)
             setCustomBackdrop(b)
+            setPrefCache('movie', Number(id), p, b)
             setModalImagem(null)
           }}
           onFechar={() => setModalImagem(null)}
