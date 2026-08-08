@@ -135,6 +135,9 @@ export function DetalhesFilme() {
   const diretor = filme.credits.crew.find((c) => c.job === 'Director')
   const elenco = filme.credits.cast.slice(0, 15)
   const streaming = filme.providers_br?.flatrate ?? []
+  const agora = new Date()
+  const hoje = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, '0')}-${String(agora.getDate()).padStart(2, '0')}`
+  const filmeFuturo = Boolean(filme.release_date && filme.release_date > hoje)
 
   return (
     <div className="min-h-screen bg-[#0f0f13] overflow-x-hidden">
@@ -199,6 +202,11 @@ export function DetalhesFilme() {
         <div className="absolute bottom-0 left-0 right-0 flex items-end gap-4 px-4 pb-5">
           <div className="flex-1 min-w-0">
             <h1 className="text-2xl font-bold leading-tight text-white drop-shadow-lg">{filme.title}</h1>
+            {filmeFuturo && filme.release_date && (
+              <p className="mt-1 text-xs font-semibold text-amber-300">
+                Estreia em {new Date(`${filme.release_date}T12:00:00`).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })}
+              </p>
+            )}
             <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
               {diretor && <span className="text-xs text-[#9898ac]">Dir. {diretor.name}</span>}
               {ano && (
@@ -237,6 +245,7 @@ export function DetalhesFilme() {
           ativo={acoes.assistido}
           corAtivo="#f97316"
           onClick={acoes.toggleAssistido}
+          disabled={filmeFuturo}
         />
         <ActionBtn
           icon={<Star size={25} className={acoes.assistido ? 'fill-current' : ''} />}
@@ -482,17 +491,19 @@ function AbaDetalhesUsuario({ elenco }: { elenco: TMDBCastMember[] }) {
 
 // Componentes compartilhados
 
-function ActionBtn({ icon, label, ativo = false, onClick, corAtivo }: {
+function ActionBtn({ icon, label, ativo = false, onClick, corAtivo, disabled = false }: {
   icon: React.ReactNode
   label: string
   ativo?: boolean
   onClick?: () => void
   corAtivo?: string
+  disabled?: boolean
 }) {
   return (
     <button
       onClick={onClick}
-      className="flex flex-col items-center gap-1.5 py-3.5 transition-colors active:scale-95"
+      disabled={disabled}
+      className="flex flex-col items-center gap-1.5 py-3.5 transition-colors active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
       style={{ color: ativo && corAtivo ? corAtivo : '#9898ac' }}
     >
       {icon}

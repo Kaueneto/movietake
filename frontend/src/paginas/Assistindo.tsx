@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Loader2, Tv2, Check, ChevronRight, ChevronDown } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
+import { Loader2, Tv2, Check, ChevronRight, ChevronDown, CalendarDays } from 'lucide-react'
 import { useContinuarAssistindo, type SerieEmProgresso } from '../hooks/useContinuarAssistindo'
 import { tmdbImage } from '../lib/api'
 import { supabase } from '../lib/supabase'
@@ -8,12 +9,27 @@ import { useAuth } from '../lib/AuthContext'
 
 type Aba = 'assistindo' | 'estreias'
 
+function formatarProximaEstreia(data: string | null) {
+  if (!data) return 'Data de estreia indisponível'
+
+  const hoje = new Date()
+  const inicioHoje = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate(), 12)
+  const estreia = new Date(`${data}T12:00:00`)
+  const dias = Math.round((estreia.getTime() - inicioHoje.getTime()) / 86_400_000)
+
+  if (dias <= 0) return 'Estreia hoje'
+  if (dias === 1) return 'Estreia amanhã'
+  if (dias <= 15) return `Estreia em ${dias} dias`
+
+  return `Estreia em ${estreia.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })}`
+}
+
 export function Assistindo() {
-  const { emAndamento, naoIniciadas, concluidas, loading } = useContinuarAssistindo()
+  const { emAndamento, naoIniciadas, proximasEstreias, loading } = useContinuarAssistindo()
   const { profileId } = useAuth()
   const [aba, setAba] = useState<Aba>('assistindo')
 
-  const temAlguma = emAndamento.length > 0 || naoIniciadas.length > 0 || concluidas.length > 0
+  const temAlguma = emAndamento.length > 0 || naoIniciadas.length > 0
 
   if (loading) {
     return (
@@ -25,7 +41,10 @@ export function Assistindo() {
 
   return (
     <div className="min-h-screen bg-[#0f0f13]">
-      <div className="sticky top-0 z-30 bg-[#0f0f13] px-4 pt-5">
+      <div
+        className="sticky top-0 z-30 bg-[#0f0f13] px-4"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 20px)' }}
+      >
         <div className="flex border-b border-[#2a2a38]">
           <button
             onClick={() => setAba('assistindo')}
@@ -78,30 +97,66 @@ export function Assistindo() {
                   </SecaoRecolhivel>
                 )}
 
-                {/* Concluídas */}
-                {concluidas.length > 0 && (
-                  <SecaoRecolhivel
-                    label="Concluídas"
-                    count={concluidas.length}
-                    cor="text-green-400 bg-green-500/10"
-                    defaultAberta={false}
-                  >
-                    {concluidas.map((serie) => (
-                      <CardSerie key={serie.tmdbId} serie={serie} profileId={profileId} />
-                    ))}
-                  </SecaoRecolhivel>
-                )}
-
               </div>
             )}
           </>
         )}
 
         {aba === 'estreias' && (
-          <EstadoVazio mensagem="Em breve" detalhe="Os próximos episódios das suas séries aparecerão aqui." />
+          proximasEstreias.length === 0 ? (
+            <EstadoVazio mensagem="Nenhuma estreia em breve" detalhe="Quando o próximo episódio de uma série acompanhada tiver data de estreia, ele aparecerá aqui." />
+          ) : (
+            <div className="space-y-3">
+              <div className="flex justify-center">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-3 py-1 text-xs font-semibold uppercase text-amber-300">
+                  Próximas estreias
+                  <span className="rounded-full bg-black/20 px-1.5 py-0.5 text-[10px] font-bold leading-none">{proximasEstreias.length}</span>
+                </span>
+              </div>
+              {proximasEstreias.map((serie) => (
+                <CardEstreia key={serie.tmdbId} serie={serie} />
+              ))}
+            </div>
+          )
         )}
       </div>
     </div>
+  )
+}
+
+function CardEstreia({ serie }: { serie: SerieEmProgresso }) {
+  const navigate = useNavigate()
+  const poster = tmdbImage(serie.poster_path, 'w342')
+  const episodio = serie.proximo!
+  const dataEstreia = formatarProximaEstreia(episodio.air_date)
+  const episodioLabel = `T${String(episodio.season_number).padStart(2, '0')} · E${String(episodio.episode_number).padStart(2, '0')}`
+
+  return (
+    <button
+      onClick={() => navigate(`/series/${serie.tmdbId}/temporadas/${episodio.season_number}/episodios/${episodio.episode_number}`)}
+      className="flex w-full items-center gap-3 rounded-2xl bg-[#1c1c24] p-2 pr-3 text-left transition-colors active:bg-[#252532]"
+      aria-label={`Ver detalhes da estreia de ${serie.nome}`}
+    >
+      <div className="h-[72px] w-[52px] shrink-0 overflow-hidden rounded-xl bg-[#16161c]">
+        {poster ? (
+          <img src={poster} alt={serie.nome} className="h-full w-full object-cover" />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center">
+            <Tv2 size={18} className="text-[#3a3a4a]" aria-hidden="true" />
+          </div>
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-xs font-semibold text-[#9898ac]">{serie.nome.toUpperCase()}</p>
+        <p className="mt-1 text-base font-bold text-[#f1f1f3]">{episodioLabel}</p>
+        <p className="mt-0.5 truncate text-xs text-[#9898ac]">{episodio.nome || 'Próximo episódio'}</p>
+        <p className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-amber-300">
+          <CalendarDays size={13} aria-hidden="true" />
+          {dataEstreia}
+        </p>
+      </div>
+      <ChevronRight size={18} className="shrink-0 text-[#5a5a72]" aria-hidden="true" />
+    </button>
   )
 }
 
@@ -139,6 +194,7 @@ function SecaoRecolhivel({ label, count, cor, defaultAberta = true, children }: 
 
 function CardSerie({ serie, profileId }: { serie: SerieEmProgresso; profileId: number | null }) {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const poster = tmdbImage(serie.poster_path, 'w342')
   const [confirmado, setConfirmado] = useState(false)
 
@@ -181,6 +237,7 @@ function CardSerie({ serie, profileId }: { serie: SerieEmProgresso; profileId: n
         ])
       )
     )
+      .then(() => queryClient.invalidateQueries({ queryKey: ['continuarAssistindo', profileId] }))
 
     await new Promise((res) => setTimeout(res, 500))
     navigate(`/series/${serie.tmdbId}/temporadas/${serie.proximo.season_number}/episodios/${serie.proximo.episode_number}`)
@@ -198,8 +255,8 @@ function CardSerie({ serie, profileId }: { serie: SerieEmProgresso; profileId: n
           {poster ? (
             <img src={poster} alt={serie.nome} className="h-full w-full object-cover" />
           ) : (
-            <div className="flex h-full w-full items-center justify-center">
-              <Tv2 size={18} className="text-[#3a3a4a]" aria-hidden="true" />
+            <div className="flex h-full w-full items-center justify-center ">
+              <Tv2 size={18} className="text-[#3a3a4a] " aria-hidden="true" />
             </div>
           )}
         </div>
@@ -210,10 +267,10 @@ function CardSerie({ serie, profileId }: { serie: SerieEmProgresso; profileId: n
         {/* Nome da série — vai para detalhes */}
         <button
           onClick={() => navigate(`/series/${serie.tmdbId}`)}
-          className="mb-1 flex items-center gap-1"
+          className="mb-1 flex items-center gap-1 bg-[#3a3a469a] border border-gray-700 hover:scale-105 text-left text-sm hover:text-[#f1f1f3] rounded-lg px-2 py-1 transform transition-all duration-200"
           aria-label={`Ver detalhes de ${serie.nome}`}
         >
-          <span className="text-xs font-semibold text-[#9898ac]">{serie.nome.toUpperCase()}</span>
+          <span className="text-xs font-semibold text-[#9898ac] bg-gray-700/1">{serie.nome.toUpperCase()}</span>
           <ChevronRight size={12} className="text-[#5a5a72]" aria-hidden="true" />
         </button>
 

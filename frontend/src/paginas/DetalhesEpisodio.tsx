@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, Star, Clock, Calendar,
   Loader2, AlertCircle, Heart, Eye,
@@ -39,6 +40,7 @@ export function DetalhesEpisodio() {
     episodio: string
   }>()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const { profileId } = useAuth()
 
   const [ep, setEp] = useState<TMDBEpisodeDetails | null>(null)
@@ -75,9 +77,12 @@ export function DetalhesEpisodio() {
   }, [profileId, ep?.id])
 
   const episodioTmdbId = ep?.id ?? null
+  const agora = new Date()
+  const hoje = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, '0')}-${String(agora.getDate()).padStart(2, '0')}`
+  const episodioFuturo = Boolean(ep?.air_date && ep.air_date > hoje)
 
   async function toggleAssistido() {
-    if (!profileId || !serieId || !temporada || !episodio || !episodioTmdbId) return
+    if (!profileId || !serieId || !temporada || !episodio || !episodioTmdbId || episodioFuturo) return
     setSalvando(true)
     try {
       if (assistido) {
@@ -100,6 +105,7 @@ export function DetalhesEpisodio() {
         )
         setAssistido(true)
       }
+      await queryClient.invalidateQueries({ queryKey: ['continuarAssistindo', profileId] })
     } finally {
       setSalvando(false)
     }
@@ -152,9 +158,14 @@ export function DetalhesEpisodio() {
           S{String(ep.season_number).padStart(2, '0')} · E{String(ep.episode_number).padStart(2, '0')}
         </p>
         <h1 className="text-xl font-semibold leading-tight text-[#f1f1f3]">{ep.name}</h1>
+        {episodioFuturo && ep.air_date && (
+          <p className="mt-1 text-xs font-semibold text-amber-300">
+            Estreia em {new Date(`${ep.air_date}T12:00:00`).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })}
+          </p>
+        )}
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
           {diretor && <span className="text-xs text-[#9898ac]">Dir. {diretor.name}</span>}
-          {ep.air_date && (
+          {ep.air_date && !episodioFuturo && (
             <span className="flex items-center gap-1 text-xs text-[#9898ac]">
               <Calendar size={11} aria-hidden="true" />
               {new Date(ep.air_date).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })}
@@ -183,6 +194,7 @@ export function DetalhesEpisodio() {
           ativo={assistido}
           corAtivo="#f97316"
           onClick={toggleAssistido}
+          disabled={episodioFuturo}
         />
         <BotaoAcao
           icon={<Star size={25} className={avaliacao > 0 ? 'fill-current' : ''} />}
@@ -306,17 +318,19 @@ export function DetalhesEpisodio() {
   )
 }
 
-function BotaoAcao({ icon, label, ativo = false, onClick, corAtivo }: {
+function BotaoAcao({ icon, label, ativo = false, onClick, corAtivo, disabled = false }: {
   icon: React.ReactNode
   label: string
   ativo?: boolean
   onClick?: () => void
   corAtivo?: string
+  disabled?: boolean
 }) {
   return (
     <button
       onClick={onClick}
-      className="flex flex-col items-center gap-1.5 py-3.5 transition-colors active:scale-95"
+      disabled={disabled}
+      className="flex flex-col items-center gap-1.5 py-3.5 transition-colors active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
       style={{ color: ativo && corAtivo ? corAtivo : '#9898ac' }}
     >
       {icon}

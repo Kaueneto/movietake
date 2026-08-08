@@ -25,6 +25,26 @@ import { getPrefCache, setPrefCache } from '../lib/prefsCache'
 
 const HERO_HEIGHT = 420
 
+function dataLocalHoje() {
+  const agora = new Date()
+  return new Date(agora.getFullYear(), agora.getMonth(), agora.getDate(), 12)
+}
+
+function episodioAindaNaoEstreou(ep: TMDBEpisode) {
+  if (!ep.air_date) return false
+  return new Date(`${ep.air_date}T12:00:00`) > dataLocalHoje()
+}
+
+function textoEstreia(ep: TMDBEpisode) {
+  if (!ep.air_date) return null
+  const data = new Date(`${ep.air_date}T12:00:00`)
+  const dias = Math.round((data.getTime() - dataLocalHoje().getTime()) / 86_400_000)
+  if (dias <= 0) return 'Hoje'
+  if (dias === 1) return 'Amanhã'
+  if (dias <= 15) return `Em ${dias} dias`
+  return data.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })
+}
+
 export function DetalhesSerie() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -44,6 +64,7 @@ export function DetalhesSerie() {
   const [customBackdrop, setCustomBackdrop] = useState<string | null>(cachedPrefs?.backdrop ?? null)
   const [modalImagem, setModalImagem] = useState<'poster' | 'backdrop' | null>(null)
   const [cacheTemporadas, setCacheTemporadas] = useState<Record<number, TMDBSeason>>({})
+  const [episodiosAssistidosCarregados, setEpisodiosAssistidosCarregados] = useState(false)
   // episodiosAssistidos: episode_tmdb_id → watched_at ISO string (presença = assistido)
   const [episodiosAssistidos, setEpisodiosAssistidos] = useState<Record<number, string>>({})
 
@@ -54,6 +75,7 @@ export function DetalhesSerie() {
     if (!id || !profileId) return
     setLoading(true)
     setError(null)
+    setEpisodiosAssistidosCarregados(false)
     getDetalhesSerie(Number(id))
       .then((res) => {
         setSerie(res.data)
@@ -79,16 +101,20 @@ export function DetalhesSerie() {
       .finally(() => setLoading(false))
 
     // Carrega episódios assistidos
-    supabase
-      .from('series_episode_history')
-      .select('episode_tmdb_id, watched_at')
-      .eq('user_id', profileId)
-      .eq('tmdb_id', Number(id))
-      .then(({ data }) => {
+    void (async () => {
+      try {
+        const { data } = await supabase
+          .from('series_episode_history')
+          .select('episode_tmdb_id, watched_at')
+          .eq('user_id', profileId)
+          .eq('tmdb_id', Number(id))
         const mapa: Record<number, string> = {}
         for (const row of data ?? []) mapa[row.episode_tmdb_id] = row.watched_at
         setEpisodiosAssistidos(mapa)
-      })
+      } finally {
+        setEpisodiosAssistidosCarregados(true)
+      }
+    })()
 
     // Carrega estado de seguindo
     supabase
@@ -164,7 +190,7 @@ export function DetalhesSerie() {
         backdropImgRef.current.style.transform = `translateY(${y * 0.35}px)`
       if (heroRef.current) {
         const h = Math.max(HERO_HEIGHT - y * 0.5, HERO_HEIGHT * 0.5)
-        heroRef.current.style.height = `${h}px`
+        heroRef.current.style.height = `calc(${h}px + env(safe-area-inset-top, 0px))`
       }
     }
     window.addEventListener('scroll', onScroll, { passive: true })
@@ -229,7 +255,14 @@ export function DetalhesSerie() {
         />
       )}
 
-      <div ref={heroRef} className="relative w-full overflow-hidden" style={{ height: HERO_HEIGHT }}>
+      <div
+        ref={heroRef}
+        className="relative w-full overflow-hidden"
+        style={{
+          height: `calc(${HERO_HEIGHT}px + env(safe-area-inset-top, 0px))`,
+          marginTop: 'calc(env(safe-area-inset-top, 0px) * -1)',
+        }}
+      >
         <div
           ref={backdropImgRef}
           className="absolute inset-x-0 top-0 w-full cursor-pointer select-none"
@@ -303,7 +336,7 @@ export function DetalhesSerie() {
       <div className="bg-[#0f0f13] pb-28">
         {abaAtiva === 'sobre'
           ? <AbaSobre serie={serie} elenco={elenco} streaming={streaming} seguindo={seguindo} pausado={pausado} loadingSeguindo={loadingSeguindo} onSeguir={toggleSeguindo} acoes={acoes} />
-          : <AbaEpisodios serieId={Number(id)} temporadas={temporadas} cacheTemporadas={cacheTemporadas} setCacheTemporadas={setCacheTemporadas} episodiosAssistidos={episodiosAssistidos} setEpisodiosAssistidos={setEpisodiosAssistidos} onEpisodioMarcado={() => { setSeguindo(true); setPausado(false) }} />        }
+          : <AbaEpisodios serieId={Number(id)} temporadas={temporadas} cacheTemporadas={cacheTemporadas} setCacheTemporadas={setCacheTemporadas} episodiosAssistidos={episodiosAssistidos} episodiosAssistidosCarregados={episodiosAssistidosCarregados} setEpisodiosAssistidos={setEpisodiosAssistidos} onEpisodioMarcado={() => { setSeguindo(true); setPausado(false) }} />        }
       </div>
     </div>
   )
@@ -421,17 +454,18 @@ function AbaSobre({ serie, elenco, streaming, seguindo, pausado, loadingSeguindo
 
 // Aba eps
 
-function AbaEpisodios({ serieId, temporadas, cacheTemporadas, setCacheTemporadas, episodiosAssistidos, setEpisodiosAssistidos, onEpisodioMarcado }: {
+function AbaEpisodios({ serieId, temporadas, cacheTemporadas, setCacheTemporadas, episodiosAssistidos, episodiosAssistidosCarregados, setEpisodiosAssistidos, onEpisodioMarcado }: {
   serieId: number
   temporadas: Array<{ season_number: number; name: string; episode_count: number }>
   cacheTemporadas: Record<number, TMDBSeason>
   setCacheTemporadas: React.Dispatch<React.SetStateAction<Record<number, TMDBSeason>>>
   episodiosAssistidos: Record<number, string>
+  episodiosAssistidosCarregados: boolean
   setEpisodiosAssistidos: React.Dispatch<React.SetStateAction<Record<number, string>>>
   onEpisodioMarcado: () => void
 }) {
   const { profileId } = useAuth()
-  const [aberta, setAberta] = useState<number | null>(temporadas[0]?.season_number ?? null)
+  const [aberta, setAberta] = useState<number | null>(null)
   const [loadingT, setLoadingT] = useState<number | null>(null)
   const [salvandoEp, setSalvandoEp] = useState<number | null>(null)
 
@@ -479,10 +513,11 @@ function AbaEpisodios({ serieId, temporadas, cacheTemporadas, setCacheTemporadas
 
   // salva lista de episódios no banco e atualiza series_progress para 'watching'
   async function salvarEpisodios(eps: TMDBEpisode[]) {
-    if (!profileId || eps.length === 0) return
+    const episodiosDisponiveis = eps.filter((ep) => !episodioAindaNaoEstreou(ep))
+    if (!profileId || episodiosDisponiveis.length === 0) return
     const agora = new Date().toISOString()
     await supabase.from('series_episode_history').upsert(
-      eps.map((ep) => ({
+      episodiosDisponiveis.map((ep) => ({
         user_id: profileId,
         tmdb_id: serieId,
         season_number: ep.season_number,
@@ -493,7 +528,7 @@ function AbaEpisodios({ serieId, temporadas, cacheTemporadas, setCacheTemporadas
     )
     setEpisodiosAssistidos((v) => {
       const next = { ...v }
-      eps.forEach((ep) => { next[ep.id] = agora })
+      episodiosDisponiveis.forEach((ep) => { next[ep.id] = agora })
       return next
     })
     // Garante que series_progress existe e está como 'watching'
@@ -522,7 +557,7 @@ function AbaEpisodios({ serieId, temporadas, cacheTemporadas, setCacheTemporadas
   }
 
   async function toggleEpisodio(ep: TMDBEpisode) {
-    if (!profileId || salvandoEp === ep.id) return
+    if (!profileId || salvandoEp === ep.id || episodioAindaNaoEstreou(ep)) return
     const jaVisto = !!episodiosAssistidos[ep.id]
 
     // se está desmarcando, sem necessidade de verificação
@@ -577,10 +612,12 @@ function AbaEpisodios({ serieId, temporadas, cacheTemporadas, setCacheTemporadas
 
   async function marcarTemporadaInteira(season: TMDBSeason) {
     if (!profileId) return
-    const todosVistos = season.episodes.every((ep) => !!episodiosAssistidos[ep.id])
+    const episodiosDisponiveis = season.episodes.filter((ep) => !episodioAindaNaoEstreou(ep))
+    if (episodiosDisponiveis.length === 0) return
+    const todosVistos = episodiosDisponiveis.every((ep) => !!episodiosAssistidos[ep.id])
 
     if (todosVistos) {
-      const ids = season.episodes.map((ep) => ep.id)
+      const ids = episodiosDisponiveis.map((ep) => ep.id)
       setEpisodiosAssistidos((v) => { const next = { ...v }; ids.forEach((id) => delete next[id]); return next })
       await supabase.from('series_episode_history').delete()
         .eq('user_id', profileId).eq('tmdb_id', serieId).in('episode_tmdb_id', ids)
@@ -588,7 +625,7 @@ function AbaEpisodios({ serieId, temporadas, cacheTemporadas, setCacheTemporadas
     }
 
     //verifica episódios anteriores à temporada — carrega temporadas faltantes
-    const primeiroNaoVisto = season.episodes.find((ep) => !episodiosAssistidos[ep.id])
+    const primeiroNaoVisto = episodiosDisponiveis.find((ep) => !episodiosAssistidos[ep.id])
     if (!primeiroNaoVisto) return
     await garantirTemporadasAnteriores(season.season_number)
     const cacheAtual = { ...cacheTemporadas }
@@ -662,9 +699,10 @@ function AbaEpisodios({ serieId, temporadas, cacheTemporadas, setCacheTemporadas
       {/* Faixa linear de episódios */}
       {todosEpisodiosLinear.length > 0 && (
         <FaixaLinearEpisodios
-          episodios={todosEpisodiosLinear}
-          episodiosAssistidos={episodiosAssistidos}
-          salvandoEp={salvandoEp}
+           episodios={todosEpisodiosLinear}
+           episodiosAssistidos={episodiosAssistidos}
+           episodiosAssistidosCarregados={episodiosAssistidosCarregados}
+           salvandoEp={salvandoEp}
           onToggle={toggleEpisodio}
           serieId={serieId}
         />
@@ -685,6 +723,10 @@ function AbaEpisodios({ serieId, temporadas, cacheTemporadas, setCacheTemporadas
       season &&
       season.episodes.length > 0 &&
       vistosCount === season.episodes.length
+    const episodiosEstreados = season?.episodes.filter((ep) => !episodioAindaNaoEstreou(ep)) ?? []
+    const vistosEstreados = episodiosEstreados.filter((ep) => !!episodiosAssistidos[ep.id]).length
+    const temporadaEmAndamento = season?.episodes.some(episodioAindaNaoEstreou) ?? false
+    const temporadaConcluida = Boolean(allWatched && !temporadaEmAndamento)
 
     return (
       <div
@@ -697,7 +739,7 @@ function AbaEpisodios({ serieId, temporadas, cacheTemporadas, setCacheTemporadas
             <button
               onClick={() => marcarTemporadaInteira(season)}
               aria-label={
-                allWatched
+                temporadaConcluida
                   ? 'Desmarcar temporada'
                   : 'Marcar temporada como assistida'
               }
@@ -708,7 +750,7 @@ function AbaEpisodios({ serieId, temporadas, cacheTemporadas, setCacheTemporadas
                   : 'bg-white/10 backdrop-blur-md hover:bg-white/20',
               ].join(' ')}
             >
-              {allWatched && (
+              {temporadaConcluida && (
                 <Check
                   size={14}
                   className="text-black"
@@ -764,11 +806,11 @@ function AbaEpisodios({ serieId, temporadas, cacheTemporadas, setCacheTemporadas
               <div
                 className={[
                   'h-full rounded-full transition-all duration-500',
-                  allWatched ? 'bg-green-500' : 'bg-green-500/70',
+                  temporadaConcluida ? 'bg-green-500' : 'bg-amber-400',
                 ].join(' ')}
                 style={{
                   width: `${
-                    (vistosCount / season.episodes.length) * 100
+                    (vistosEstreados / Math.max(episodiosEstreados.length, 1)) * 100
                   }%`,
                 }}
               />
@@ -821,6 +863,8 @@ function EpisodeRow({ ep, watchedAt, onToggleVisto, serieId, salvando }: {
   const navigate = useNavigate()
   const thumb = tmdbImage(ep.still_path, 'w185')
   const visto = watchedAt !== null
+  const estreiaFutura = episodioAindaNaoEstreou(ep)
+  const previsaoEstreia = estreiaFutura ? textoEstreia(ep) : null
 
   const dataAssistido = watchedAt
     ? new Date(watchedAt).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })
@@ -831,14 +875,14 @@ function EpisodeRow({ ep, watchedAt, onToggleVisto, serieId, salvando }: {
       {/* check — área isolada */}
       <button
         onClick={onToggleVisto}
-        disabled={salvando}
+        disabled={salvando || estreiaFutura}
         aria-label={visto ? 'Marcar como não visto' : 'Marcar como visto'}
         className={[
           'flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 transition-all duration-200',
           visto
             ? 'border-green-500 bg-green-500 scale-110 shadow-sm shadow-green-500/30'
             : 'border-[#2a2a38] hover:border-green-500/50',
-          salvando ? 'opacity-50' : '',
+          salvando || estreiaFutura ? 'cursor-not-allowed opacity-40' : '',
         ].join(' ')}
       >
         {salvando
@@ -876,6 +920,11 @@ function EpisodeRow({ ep, watchedAt, onToggleVisto, serieId, salvando }: {
                 {dataAssistido}
               </span>
             )}
+            {previsaoEstreia && (
+              <span className="text-xs font-medium text-amber-300">
+                Estreia: {previsaoEstreia}
+              </span>
+            )}
           </div>
         </div>
 
@@ -887,31 +936,37 @@ function EpisodeRow({ ep, watchedAt, onToggleVisto, serieId, salvando }: {
 
 // Faixa linear de episódios — scroll horizontal, centraliza no próximo a assistir
 
-function FaixaLinearEpisodios({ episodios, episodiosAssistidos, salvandoEp, onToggle, serieId }: {
+function FaixaLinearEpisodios({ episodios, episodiosAssistidos, episodiosAssistidosCarregados, salvandoEp, onToggle, serieId }: {
   episodios: TMDBEpisode[]
   episodiosAssistidos: Record<number, string>
+  episodiosAssistidosCarregados: boolean
   salvandoEp: number | null
   onToggle: (ep: TMDBEpisode) => void
   serieId: number
 }) {
-  const scrollRef = useRef<HTMLDivElement>(null)
+  const proximoRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
 
-  const proximoIdx = episodios.findIndex((ep) => !episodiosAssistidos[ep.id])
-  const focoIdx = Math.max(0, proximoIdx === -1 ? episodios.length - 1 : proximoIdx)
+  const ultimoIdx = episodios.reduce((ultimo, ep, idx) => {
+    if (!episodiosAssistidos[ep.id]) return ultimo
+    if (ultimo === -1 || episodiosAssistidos[ep.id] > episodiosAssistidos[episodios[ultimo].id]) return idx
+    return ultimo
+  }, -1)
+  const proximoIdx = ultimoIdx >= 0
+    ? episodios.findIndex((ep, idx) => idx > ultimoIdx && !episodiosAssistidos[ep.id])
+    : episodios.findIndex((ep) => !episodiosAssistidos[ep.id])
+  const focoIdx = proximoIdx === -1 ? Math.max(0, ultimoIdx) : proximoIdx
 
-  // card 136px + gap 8px = 144 por slot
+  // Aguarda o histórico real antes de posicionar a faixa. O cartão alvo é
+  // centralizado pelo próprio navegador, evitando cálculos imprecisos de largura.
   useEffect(() => {
-    if (!scrollRef.current) return
-    const SLOT = 144
-    const offset = focoIdx * SLOT - scrollRef.current.clientWidth / 2 + SLOT / 2
-    scrollRef.current.scrollTo({ left: Math.max(0, offset), behavior: 'smooth' })
-  }, [focoIdx])
+    if (!episodiosAssistidosCarregados || !proximoRef.current) return
+    proximoRef.current.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'center' })
+  }, [episodiosAssistidosCarregados, focoIdx])
 
   return (
   <div className="pb-5">
     <div
-      ref={scrollRef}
       className="flex gap-3 overflow-x-auto px-4 py-1"
       style={{ scrollbarWidth: 'none', touchAction: 'pan-x' }}
     >
@@ -919,6 +974,8 @@ function FaixaLinearEpisodios({ episodios, episodiosAssistidos, salvandoEp, onTo
         const visto = !!episodiosAssistidos[ep.id]
         const isProximo = idx === proximoIdx
         const salvando = salvandoEp === ep.id
+        const estreiaFutura = episodioAindaNaoEstreou(ep)
+        const previsaoEstreia = estreiaFutura ? textoEstreia(ep) : null
 
         const thumb = tmdbImage(ep.still_path, 'w342')
         const sNum = ep.season_number < 10 ? `S0${ep.season_number}` : `S${ep.season_number}`
@@ -927,6 +984,7 @@ function FaixaLinearEpisodios({ episodios, episodiosAssistidos, salvandoEp, onTo
         return (
           <div
             key={ep.id}
+            ref={idx === focoIdx ? proximoRef : undefined}
             className={[
               'relative shrink-0 transition-all duration-300',
               isProximo
@@ -968,7 +1026,13 @@ function FaixaLinearEpisodios({ episodios, episodiosAssistidos, salvandoEp, onTo
               )}
 
               {/* Badge Próximo */}
-              {isProximo && !visto && (
+              {estreiaFutura && previsaoEstreia ? (
+                <div className="absolute top-2 left-2">
+                  <span className="rounded-full border border-amber-200/20 bg-amber-400/20 px-2.5 py-1 text-[9px] font-semibold text-amber-100 backdrop-blur-xl">
+                    Estreia: {previsaoEstreia}
+                  </span>
+                </div>
+              ) : isProximo && !visto && (
                 <div className="absolute top-2 left-2">
                   <span
                     className="
@@ -1003,14 +1067,14 @@ function FaixaLinearEpisodios({ episodios, episodiosAssistidos, salvandoEp, onTo
 
               <button
                 onClick={() => onToggle(ep)}
-                disabled={!!salvando}
+                disabled={!!salvando || estreiaFutura}
                 aria-label={visto ? 'Desmarcar como visto' : 'Marcar como visto'}
                 className={[
                   'flex h-6 w-6 items-center justify-center rounded-full transition-all duration-200',
                   visto
                     ? 'bg-green-500 text-black'
                     : 'bg-white/10 backdrop-blur-md hover:bg-white/20',
-                  salvando ? 'opacity-50' : '',
+                  salvando || estreiaFutura ? 'cursor-not-allowed opacity-40' : '',
                 ].join(' ')}
               >
                 {salvando ? (
@@ -1028,6 +1092,11 @@ function FaixaLinearEpisodios({ episodios, episodiosAssistidos, salvandoEp, onTo
                 ) : null}
               </button>
             </div>
+            {previsaoEstreia && (
+              <p className="mt-1 px-1 text-[11px] font-medium text-amber-300">
+                Estreia: {previsaoEstreia}
+              </p>
+            )}
           </div>
         )
       })}

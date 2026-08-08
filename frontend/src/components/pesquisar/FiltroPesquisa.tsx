@@ -18,7 +18,7 @@ const opcoes: { value: FiltroTipo; label: string; icon: React.ReactNode }[] = [
 export function FiltroPesquisa({ filtro, onChange }: Props) {
   return (
     <div
-      className="flex gap-1 rounded-xl border border-[#2a2a38] bg-[#1c1c24] p-1"
+      className="flex gap-1 rounded-2xl border border-white/[0.06] bg-[#1c1c24]/80 p-1 shadow-[0_1px_0_rgba(255,255,255,0.03)_inset]"
       role="tablist"
       aria-label="Filtrar por tipo de mídia"
     >
@@ -31,10 +31,10 @@ export function FiltroPesquisa({ filtro, onChange }: Props) {
             aria-selected={active}
             onClick={() => onChange(op.value)}
             className={[
-              'flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-xs font-medium transition-colors',
+              'flex flex-1 items-center justify-center gap-1.5 rounded-xl px-2 py-2 text-xs font-medium transition-all duration-200',
               active
-                ? 'bg-[#6366f1] text-white'
-                : 'text-[#9898ac] hover:bg-[#22222c] hover:text-[#f1f1f3]',
+                ? 'bg-[#343440] text-white shadow-[0_1px_1px_rgba(0,0,0,0.35),0_1px_0_rgba(255,255,255,0.08)_inset]'
+                : 'text-[#9898ac] hover:bg-white/[0.05] hover:text-[#f1f1f3]',
             ].join(' ')}
           >
             {op.icon}

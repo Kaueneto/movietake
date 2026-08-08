@@ -21,8 +21,12 @@ export async function buscar(req: Request, res: Response) {
 
     if (tipo === 'movie') {
       data = await tmdbService.searchMovies(query, pagina)
+      // A API /search/movie não inclui media_type nos itens.
+      data.results = data.results.map((item: any) => ({ ...item, media_type: 'movie' }))
     } else if (tipo === 'tv') {
       data = await tmdbService.searchSeries(query, pagina)
+      // A API /search/tv não inclui media_type nos itens.
+      data.results = data.results.map((item: any) => ({ ...item, media_type: 'tv' }))
     } else if (tipo === 'person') {
       const raw = await tmdbService.searchPeople(query, pagina)
       // A API /search/person nao retorna media_type em cada item — injetamos aqui

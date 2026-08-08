@@ -7,6 +7,8 @@ interface Props {
   item: TMDBMovie | TMDBSerie
   mediaType: 'movie' | 'tv'
   customPosterPath?: string | null
+  progress?: number
+  className?: string
 }
 
 // cache simples para não prefetch duplicado
@@ -20,7 +22,7 @@ function prefetch(mediaType: 'movie' | 'tv', id: number) {
   api.get(rota).catch(() => { prefetchado.delete(key) })
 }
 
-export function CardMedia({ item, mediaType, customPosterPath }: Props) {
+export function CardMedia({ item, mediaType, customPosterPath, progress, className = '' }: Props) {
   const navigate = useNavigate()
 
   const title = getTitle(item)
@@ -40,7 +42,7 @@ export function CardMedia({ item, mediaType, customPosterPath }: Props) {
       onClick={handleClick}
       onMouseEnter={() => prefetch(mediaType, item.id)}
       onTouchStart={() => prefetch(mediaType, item.id)}
-      className="group flex flex-col overflow-hidden rounded-2xl border border-[#2a2a38] bg-[#1c1c24] transition-all duration-200 hover:-translate-y-1 hover:border-[#6366f1]/40 hover:shadow-xl hover:shadow-black/40 cursor-pointer"
+      className={`group flex flex-col overflow-hidden rounded-2xl border border-[#2a2a38] bg-[#1c1c24] transition-all duration-200 hover:-translate-y-1 hover:border-[#6366f1]/40 hover:shadow-xl hover:shadow-black/40 cursor-pointer ${className}`}
       aria-label={title}
     >
       {/* Poster */}
@@ -66,6 +68,11 @@ export function CardMedia({ item, mediaType, customPosterPath }: Props) {
 
         {customPosterPath && (
           <div className="absolute bottom-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-[#6366f1]" aria-label="Poster personalizado" />
+        )}
+        {progress !== undefined && progress > 0 && (
+          <div className="absolute inset-x-2 bottom-2 h-1 overflow-hidden rounded-full bg-black/50" aria-label={`${Math.round(progress * 100)}% assistido`}>
+            <div className="h-full rounded-full bg-[#ef5261]" style={{ width: `${Math.min(progress, 1) * 100}%` }} />
+          </div>
         )}
       </div>
 
